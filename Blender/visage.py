@@ -134,6 +134,11 @@ VISAGE_STATE = multiprocessing.Array('i', [0, 0, 0], lock=False)
 VISAGE_FRAME = multiprocessing.Array('d', [0] * 63, lock=False)
 
 
+RECEIVER = None
+TARGET = None
+PREFS = None
+
+
 def lerp(a, b, v):
     return a * (1 - v) + b * v
 
@@ -142,77 +147,9 @@ def remap(v, b, s):
     return (v - b) * s
 
 
-RECEIVER = None
-TARGET = None
-PREFS = None
-
-
-class Frame:
-    def __init__(self):
-        self.time = 0.
-        self.head = [0., 0., 0.]
-        self.eye_l = [0., 0.]
-        self.eye_r = [0., 0.]
-        self.weights = [0.] * 52
-
-
-class Receiver:
-    def __init__(self, host, port):
-        self.host = host
-        self.port = port
-        self.process = None
-        self.server = None
-        self.status = 0
-
-    @property
-    def is_running(self):
-        return VISAGE_STATE[0] == 1
-
-    def start(self):
-        if self.process and self.process.is_alive():
-            return
-        else:
-            self.status = 1
-            VISAGE_STATE[0] = 1
-            self.process = multiprocessing.Process(
-                target=self.loop, args=(VISAGE_STATE, VISAGE_FRAME))
-            self.process.start()
-
-    def stop(self):
-        self.status = 2
-        VISAGE_STATE[0] = 2
-
-    def timeout(self):
-        if self.server:
-            self.server.timed_out = True
-
-    def loop(self, state, data):
-        print('Visage OSC receiver started')
-
-        self.state = state
-        self.data = data
-
-        dispatch = dispatcher.Dispatcher()
-        dispatch.map('/visage', self.receive)
-
-        self.server = server = osc_server.BlockingOSCUDPServer((self.host, self.port), dispatch)
-        server.handle_timeout = self.timeout
-        server.timeout = 0
-
-        while not state[0] == 2:
-            server.timed_out = False
-            while not server.timed_out:
-                server.handle_request()
-
-        print('Visage OSC receiver stopped')
-
-        self.server.server_close()
-        self.server = None
-        self.status = 0
-        state[0] = 0
-
-    def receive(self, *args):
-        self.data[:] = args[1:]
+def redraw_areas():
+    for area in bpy.context.screen.areas:
+        area.tag_redraw()
 
 
 def start_global_receiver():
@@ -357,12 +294,6 @@ def keyframe_visage_recording(target, prefs):
     gc.collect()
 
 
-def redraw_areas():
-    for area in bpy.context.screen.areas:
-        area.tag_redraw()
-
-
-@bpy.app.handlers.persistent
 def on_frame_change_post(scene):
     wm = bpy.context.window_manager
 
@@ -376,6 +307,77 @@ def on_frame_change_post(scene):
 
         if wm.visage_record and screen.is_animation_playing and not screen.is_scrubbing:
             record_visage_data(target, prefs)
+
+
+def maybe_toggle_frame_change_handler():
+    wm = bpy.context.window_manager
+    if wm.visage_preview or wm.visage_record:
+        if on_frame_change_post not in bpy.app.handlers.frame_change_post:
+            bpy.app.handlers.frame_change_post.append(on_frame_change_post)
+            print('Frame handler added')
+    else:
+        if on_frame_change_post in bpy.app.handlers.frame_change_post:
+            bpy.app.handlers.frame_change_post.remove(on_frame_change_post)
+            print('Frame handler removed')
+
+
+class Receiver:
+    def __init__(self, host, port):
+        self.host = host
+        self.port = port
+        self.process = None
+        self.server = None
+        self.status = 0
+
+    @property
+    def is_running(self):
+        return VISAGE_STATE[0] == 1
+
+    def start(self):
+        if self.process and self.process.is_alive():
+            return
+        else:
+            self.status = 1
+            VISAGE_STATE[0] = 1
+            self.process = multiprocessing.Process(
+                target=self.loop, args=(VISAGE_STATE, VISAGE_FRAME))
+            self.process.start()
+
+    def stop(self):
+        self.status = 2
+        VISAGE_STATE[0] = 2
+
+    def timeout(self):
+        if self.server:
+            self.server.timed_out = True
+
+    def loop(self, state, data):
+        print('Visage OSC receiver started')
+
+        self.state = state
+        self.data = data
+
+        dispatch = dispatcher.Dispatcher()
+        dispatch.map('/visage', self.receive)
+
+        self.server = server = osc_server.BlockingOSCUDPServer((self.host, self.port), dispatch)
+        server.handle_timeout = self.timeout
+        server.timeout = 0
+
+        while not state[0] == 2:
+            server.timed_out = False
+            while not server.timed_out:
+                server.handle_request()
+
+        print('Visage OSC receiver stopped')
+
+        self.server.server_close()
+        self.server = None
+        self.status = 0
+        state[0] = 0
+
+    def receive(self, *args):
+        self.data[:] = args[1:]
 
 
 class VisagePreferences(bpy.types.AddonPreferences):
@@ -475,12 +477,12 @@ class VisagePanelAnimation(bpy.types.Panel):
         col = layout.column(align=True)
         row = col.row(align=True)
         row.scale_y = 2
-        row.operator('fc.record', text='RECORD', depress=True if wm.visage_record else False)
+        row.operator('vs.record', text='RECORD', depress=True if wm.visage_record else False)
         row = col.row(align=True)
         row.scale_y = 1.25
-        row.operator('fc.record_save', text='Save (%s)' % len(VISAGE_RECORD))
-        row.operator('fc.record_key', text='', icon='KEYFRAME')
-        row.operator('fc.record_clear', text='Clear')
+        row.operator('vs.record_save', text='Save (%s)' % len(VISAGE_RECORD))
+        row.operator('vs.record_key', text='', icon='KEYFRAME')
+        row.operator('vs.record_clear', text='Clear')
         self.layout.prop(prefs, 'frame_latency', text='Frame Latency')
 
 
@@ -498,20 +500,19 @@ class VisagePanelData(bpy.types.Panel):
 
         row = self.layout.row(align=True)
         row.scale_y = 1.5
-        # if wm.visage_preview:
-        #     row.operator('fc.preview_toggle', text='Preview', depress=True)
-        # else:
-        #     row.operator('fc.preview_toggle', text='Preview', depress=False)
-        row.prop(wm, 'visage_preview', text='Preview', toggle=True)
-        row.operator('fc.reset', text='Reset')
+        if wm.visage_preview:
+            row.operator('vs.preview', text='Preview', depress=True)
+        else:
+            row.operator('vs.preview', text='Preview', depress=False)
+        row.operator('vs.reset', text='Reset')
 
         col = self.layout.column(align=True)
         row = col.row(align=True)
         row.scale_y = 1.25
         if not is_global_receiver_running():
-            row.operator('fc.start', text='Receive', depress=False)
+            row.operator('vs.start', text='Receive', depress=False)
         else:
-            row.operator('fc.stop', text='Receive', depress=True)
+            row.operator('vs.stop', text='Receive', depress=True)
         col.prop(prefs, 'port', text='Port')
         col.prop(prefs, 'host', text='')
 
@@ -626,12 +627,12 @@ class VisagePanelFilter(bpy.types.Panel):
 
         col = layout.column(align=True)
         col.scale_y = 1.5
-        col.operator('fc.destutter', text='Destutter')
+        col.operator('vs.destutter', text='Destutter')
 
         col = layout.column(align=True)
         op = col.column(align=True)
         op.scale_y = 1.5
-        op.operator('fc.smooth', text='Smooth')
+        op.operator('vs.smooth', text='Smooth')
         col.prop(settings, 'filter_falloff', text='')
         col.prop(settings, 'filter_samples', text='Samples')
         col.prop(settings, 'filter_bias', text='Bias')
@@ -639,7 +640,7 @@ class VisagePanelFilter(bpy.types.Panel):
 
 
 class VisageStart(bpy.types.Operator):
-    bl_idname = 'fc.start'
+    bl_idname = 'vs.start'
     bl_label = 'Start Visage Receiver'
 
     def execute(self, context):
@@ -647,7 +648,7 @@ class VisageStart(bpy.types.Operator):
         return {'FINISHED'}
 
 class VisageStop(bpy.types.Operator):
-    bl_idname = 'fc.stop'
+    bl_idname = 'vs.stop'
     bl_label = 'Stop Visage Receiver'
 
     def execute(self, context):
@@ -656,13 +657,13 @@ class VisageStop(bpy.types.Operator):
 
 
 class VisageReset(bpy.types.Operator):
-    bl_idname = 'fc.reset'
+    bl_idname = 'vs.reset'
     bl_label = 'Reset Visage Values'
 
     def execute(self, context):
         wm = context.window_manager
         if wm.visage_preview:
-            bpy.ops.fc.preview_toggle()
+            bpy.ops.vs.preview_toggle()
         target = context.scene.visage_target
         for shape in SHAPE_KEYS:
             target.face.shape_keys.key_blocks[shape].value = 0
@@ -672,25 +673,43 @@ class VisageReset(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class VisagePreview(bpy.types.Operator):
+    bl_idname = 'vs.preview'
+    bl_label = 'Preview'
+
+    def execute(self, context):
+        wm = context.window_manager
+        wm.visage_preview = not wm.visage_preview
+        if wm.visage_preview:
+            if not bpy.app.timers.is_registered(global_preview_step):
+                bpy.app.timers.register(global_preview_step)
+        else:
+            if bpy.app.timers.is_registered(global_preview_step):
+                bpy.app.timers.unregister(global_preview_step)
+        maybe_toggle_frame_change_handler()
+        return {'FINISHED'}
+
+
 class VisageRecord(bpy.types.Operator):
-    bl_idname = 'fc.record'
+    bl_idname = 'vs.record'
     bl_label = 'Record'
 
     def execute(self, context):
         global RECEIVER
         wm = context.window_manager
         if not RECEIVER.is_running:
-            bpy.ops.fc.start()
+            bpy.ops.vs.start()
         wm.visage_record = not wm.visage_record
         # if wm.visage_record and not wm.visage_preview:
-        #     bpy.ops.fc.preview()
+        #     bpy.ops.vs.preview()
         # elif not wm.visage_record:
         #     wm.visage_preview = False
+        maybe_toggle_frame_change_handler()
         return {'FINISHED'}
 
 
 class VisageRecordKey(bpy.types.Operator):
-    bl_idname = 'fc.record_key'
+    bl_idname = 'vs.record_key'
     bl_label = 'Record Single Keyframe'
 
     def execute(self, context):
@@ -701,7 +720,7 @@ class VisageRecordKey(bpy.types.Operator):
 
 
 class VisageRecordSave(bpy.types.Operator):
-    bl_idname = 'fc.record_save'
+    bl_idname = 'vs.record_save'
     bl_label = 'Save'
 
     def execute(self, context):
@@ -709,13 +728,13 @@ class VisageRecordSave(bpy.types.Operator):
         target = context.scene.visage_target
         prefs = prefs = bpy.context.preferences.addons['visage'].preferences
         if wm.visage_record:
-            bpy.ops.fc.record()
+            bpy.ops.vs.record()
         keyframe_visage_recording(target, prefs)
         return {'FINISHED'}
 
 
 class VisageRecordClear(bpy.types.Operator):
-    bl_idname = 'fc.record_clear'
+    bl_idname = 'vs.record_clear'
     bl_label = 'Clear'
 
     def execute(self, context):
@@ -725,7 +744,7 @@ class VisageRecordClear(bpy.types.Operator):
 
 
 class VisageShapeKeys(bpy.types.Operator):
-    bl_idname = 'fc.visage_shape_keys'
+    bl_idname = 'vs.visage_shape_keys'
     bl_label = 'Create Visage Shape Keys'
     bl_options = {'REGISTER', 'UNDO'}
 
@@ -746,7 +765,7 @@ class VisageShapeKeys(bpy.types.Operator):
 
 
 class VisageDestutter(bpy.types.Operator):
-    bl_idname = 'fc.destutter'
+    bl_idname = 'vs.destutter'
     bl_label = 'Destutter Visage Curves'
     bl_options = {'REGISTER', 'UNDO'}
 
@@ -801,7 +820,7 @@ class VisageDestutter(bpy.types.Operator):
 
 
 class VisageSmooth(bpy.types.Operator):
-    bl_idname = 'fc.smooth'
+    bl_idname = 'vs.smooth'
     bl_label = 'Smooth Visage Curves'
     bl_options = {'REGISTER', 'UNDO'}
 
@@ -888,6 +907,7 @@ __REGISTER_CLASSES__ = (
     VisageStart,
     VisageStop,
     VisageReset,
+    VisagePreview,
     VisageRecord,
     VisageRecordKey,
     VisageRecordSave,
@@ -912,10 +932,6 @@ def register():
     for obj, prop, value in __REGISTER_PROPS__:
         setattr(obj, prop, value)
 
-    bpy.app.handlers.frame_change_post.append(on_frame_change_post)
-    if not bpy.app.timers.is_registered(global_preview_step):
-        bpy.app.timers.register(global_preview_step, persistent=True)
-
 
 def unregister():
     stop_global_receiver()
@@ -925,7 +941,3 @@ def unregister():
 
     for cls, prop, value in __REGISTER_PROPS__:
         delattr(cls, prop)
-
-    bpy.app.handlers.frame_change_post.remove(on_frame_change_post)
-    if bpy.app.timers.is_registered(global_preview_step):
-        bpy.app.timers.unregister(global_preview_step)
