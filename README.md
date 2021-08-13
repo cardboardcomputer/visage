@@ -1,6 +1,8 @@
 # Visage
 
-Basic iPhone app to stream ARAnchorFace blendshape data via OpenSoundControl.
+Basic iPhone app to stream face capture blendshape data provided through ARKit's `ARFaceAnchor`, and broadcasts it through Open Sound Control.
+
+This app depends on the [SwiftOSC](https://github.com/ExistentialAudio/SwiftOSC) framework.
 
 # OSC Broadcast
 
@@ -8,7 +10,7 @@ An OSC message is broadcast everytime the AR session on the iPhone is updated. T
 
 The message that is broadcast is an array of 63 floats:
 
-`/face float[63]`
+`/visage float[63]`
 
 With the following sections in the array:
 
