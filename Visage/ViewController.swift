@@ -9,7 +9,7 @@ import UIKit
 import ARKit
 import SwiftOSC
 
-let addrFace = OSCAddressPattern("/face")
+let addrFace = OSCAddressPattern("/visage")
 
 class ViewController: UIViewController, UITextFieldDelegate, ARSCNViewDelegate, ARSessionDelegate {
     
