@@ -194,9 +194,9 @@ class ViewController: UIViewController, UITextFieldDelegate, ARSCNViewDelegate, 
         let eyeRight = face.rightEyeTransform.eulerAngles
         let headRot = face.transform.eulerAngles
         
-        data[52] = eyeLeft.z
+        data[52] = -eyeLeft.z
         data[53] = eyeLeft.y
-        data[54] = eyeRight.z
+        data[54] = -eyeRight.z
         data[55] = eyeRight.y
         data[56] = headRot.x
         data[57] = headRot.y
