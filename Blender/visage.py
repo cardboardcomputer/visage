@@ -294,7 +294,7 @@ def keyframe_visage_recording(target, prefs):
     gc.collect()
 
 
-def on_frame_change_post(scene):
+def handler_frame_change_post(scene):
     wm = bpy.context.window_manager
 
     if wm.visage_preview or wm.visage_record:
@@ -312,13 +312,20 @@ def on_frame_change_post(scene):
 def maybe_toggle_frame_change_handler():
     wm = bpy.context.window_manager
     if wm.visage_preview or wm.visage_record:
-        if on_frame_change_post not in bpy.app.handlers.frame_change_post:
-            bpy.app.handlers.frame_change_post.append(on_frame_change_post)
-            print('Frame handler added')
+        if handler_frame_change_post not in bpy.app.handlers.frame_change_post:
+            bpy.app.handlers.frame_change_post.append(handler_frame_change_post)
     else:
-        if on_frame_change_post in bpy.app.handlers.frame_change_post:
-            bpy.app.handlers.frame_change_post.remove(on_frame_change_post)
-            print('Frame handler removed')
+        if handler_frame_change_post in bpy.app.handlers.frame_change_post:
+            bpy.app.handlers.frame_change_post.remove(handler_frame_change_post)
+
+
+@bpy.app.handlers.persistent
+def handler_load_pre(*args):
+    stop_global_receiver()
+    if handler_frame_change_post in bpy.app.handlers.frame_change_post:
+        bpy.app.handlers.frame_change_post.remove(handler_frame_change_post)
+    if bpy.app.timers.is_registered(global_preview_step):
+        bpy.app.timers.unregister(global_preview_step)
 
 
 class Receiver:
@@ -932,6 +939,8 @@ def register():
     for obj, prop, value in __REGISTER_PROPS__:
         setattr(obj, prop, value)
 
+    bpy.app.handlers.load_pre.append(handler_load_pre)
+
 
 def unregister():
     stop_global_receiver()
@@ -941,3 +950,5 @@ def unregister():
 
     for cls, prop, value in __REGISTER_PROPS__:
         delattr(cls, prop)
+
+    bpy.app.handlers.load_pre.remove(handler_load_pre)
