@@ -29,6 +29,10 @@ class VisageState:
         self.input_status = multiprocessing.Array('i', [0, 0, 0], lock=False)
         self.input_frame = multiprocessing.Array('d', [0] * 63, lock=False)
 
+    @property
+    def is_receiver_running(self):
+        return self.receiver and self.receiver.is_running
+
     def start_receiver(self):
         self.target = bpy.context.scene.visage_target
         self.prefs = bpy.context.preferences.addons['visage'].preferences
@@ -42,9 +46,6 @@ class VisageState:
         if self.receiver is not None:
             self.receiver.stop()
         self.receiver = None
-
-    def is_receiver_running(self):
-        return self.receiver and self.receiver.is_running
 
     def preview_step(self):
         wm = bpy.context.window_manager
@@ -488,7 +489,7 @@ class VisagePanelData(bpy.types.Panel):
         col = self.layout.column(align=True)
         row = col.row(align=True)
         row.scale_y = 1.25
-        if not state.is_receiver_running():
+        if not state.is_receiver_running:
             row.operator('vs.start', text='Receive', depress=False)
         else:
             row.operator('vs.stop', text='Receive', depress=True)
