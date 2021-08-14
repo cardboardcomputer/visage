@@ -1,7 +1,10 @@
 import bpy
+import sys
 import gc
 import time
 import math
+import queue
+import threading
 import multiprocessing
 from pythonosc import dispatcher, osc_server
 
@@ -17,6 +20,10 @@ bl_info = {
 
 
 state = None # visage.state is like bpy.context
+mp = multiprocessing.get_context('fork')
+
+
+THREAD_SLEEP = 1. / 60.
 
 
 SHAPE_KEYS = [
@@ -283,8 +290,15 @@ class VisageState:
         self.weight_params = []
         for i in range(52):
             self.weight_params.append([0., 1., True]) # [bias, scale, enabled]
-        self.input_status = multiprocessing.Array('i', [0, 0, 0], lock=False)
-        self.input_frame = multiprocessing.Array('d', [0] * 63, lock=False)
+        self.fork = True if sys.platform == 'linux' else False
+        if self.fork:
+            self.input_status = mp.Array('i', [0, 0, 0, 0], lock=False)
+            self.input_frame = mp.Array('d', [0] * 63, lock=False)
+            self.input_buffer = mp.Queue()
+        else:
+            self.input_status = [0, 0, 0, 0]
+            self.input_frame = [0] * 63
+            self.input_buffer = queue.Queue()
 
     @property
     def is_receiver_running(self):
@@ -296,7 +310,7 @@ class VisageState:
         if self.receiver is not None:
             self.receiver.reset()
         else:
-            self.receiver = VisageReceiver(self.prefs.host, self.prefs.port)
+            self.receiver = VisageReceiver(self.prefs.host, self.prefs.port, self.fork)
         self.receiver.start()
 
     def stop_receiver(self):
@@ -316,11 +330,13 @@ state = VisageState()
 
 class VisageReceiver:
     # local singleton only
-    def __init__(self, host, port):
+    def __init__(self, host, port, fork=False):
         self.host = host
         self.port = port
+        self.fork = fork
         self.process = None
         self.server = None
+        self.sleep = 0
 
     @property
     def is_running(self):
@@ -331,8 +347,16 @@ class VisageReceiver:
             return
         else:
             state.input_status[0] = 1
-            self.process = multiprocessing.Process(
-                target=self.loop, args=(state.input_status, state.input_frame))
+            if self.fork:
+                method = mp.Process
+            else:
+                method = threading.Thread
+                self.sleep = THREAD_SLEEP
+            self.process = method(
+                target=self.loop, args=(
+                    state.input_status,
+                    state.input_frame,
+                    state.input_buffer))
             self.process.start()
 
     def stop(self):
@@ -342,10 +366,12 @@ class VisageReceiver:
         if self.server:
             self.server.timed_out = True
 
-    def loop(self, state, data):
+    def loop(self, state, data, frames):
         print('Visage OSC receiver started')
 
+        self.state = state
         self.data = data
+        self.frames = frames
 
         dispatch = dispatcher.Dispatcher()
         dispatch.map('/visage', self.receive)
@@ -359,6 +385,8 @@ class VisageReceiver:
             server.timed_out = False
             while not server.timed_out:
                 server.handle_request()
+            if self.sleep > 0:
+                time.sleep(self.sleep)
 
         print('Visage OSC receiver stopped')
 
@@ -367,14 +395,17 @@ class VisageReceiver:
         state[0] = 0
 
     def receive(self, *args):
-        self.data[:] = args[1:]
+        data = args[1:]
+        self.data[:] = data
+        if self.state[3] == 1:
+            self.frames.put_nowait(data)
 
 
 class VisagePreferences(bpy.types.AddonPreferences):
     bl_idname = 'visage'
 
-    host : bpy.props.StringProperty(default='127.0.0.1')
-    port : bpy.props.IntProperty(default=8000)
+    host : bpy.props.StringProperty(default='localhost')
+    port : bpy.props.IntProperty(default=8080)
     frame_latency : bpy.props.IntProperty(default=0)
 
     def draw(self, context):
