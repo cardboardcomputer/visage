@@ -198,9 +198,9 @@ class ViewController: UIViewController, UITextFieldDelegate, ARSCNViewDelegate, 
         data[53] = eyeLeft.y
         data[54] = -eyeRight.z
         data[55] = eyeRight.y
-        data[56] = headRot.x
+        data[56] = -headRot.z
         data[57] = headRot.y
-        data[58] = headRot.z
+        data[58] = headRot.x
         data[59] = face.transform.columns.3[0]
         data[60] = face.transform.columns.3[1]
         data[61] = face.transform.columns.3[2]
