@@ -78,16 +78,16 @@ The full list of data indicies are as follows:
 
 // transforms:
 
-[52]  eye (left) X
-[53]  eye (left) Y
-[54]  eye (right) X
-[55]  eye (right) Y
-[56]  head rotation X
-[57]  head rotation Y
-[58]  head rotation Z
-[59]  head position X
-[60]  head position Y
-[61]  head position Z
+[52]  head position.x
+[53]  head position.y
+[54]  head position.z
+[55]  head euler.x
+[56]  head euler.y
+[57]  head euler.z
+[58]  eye (left) euler.x
+[59]  eye (left) euler.y
+[60]  eye (right) euler.x
+[61]  eye (right) euler.y
 
 // timestamp:
 

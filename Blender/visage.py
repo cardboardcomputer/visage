@@ -23,7 +23,7 @@ state = VisageState()
 state.receiver = None
 state.target = None
 state.prefs = None
-state.neutral_pose = [0.] * 52
+state.neutral = [0.] * 63
 state.recording = {}
 state.weight_params = []
 for i in range(52):
@@ -198,7 +198,6 @@ def update_weight_params(self, value):
 
 
 def apply_visage_data(target, prefs, data):
-    head_offset = prefs.head_offset
     key_blocks = target.face.shape_keys.key_blocks
     bones = target.armature.pose.bones
 
@@ -210,7 +209,7 @@ def apply_visage_data(target, prefs, data):
         mirror = None
 
     weights = data[:52]
-    weights = [x - y for (x, y) in zip(weights, state.neutral_pose)]
+    weights = [x - y for (x, y) in zip(weights, state.neutral[:52])]
 
     if mirror:
         for i, weight in enumerate(weights):
@@ -228,17 +227,17 @@ def apply_visage_data(target, prefs, data):
             if enabled:
                 key_blocks[SHAPE_KEY_IDX_TO_NAME[i]].value = remap(weight, bias, scale)
 
-    head_rot = data[56:59]
+    head_rot = data[55:58]
 
     if target.head_rot_enabled:
         bs = target.head_rot_min_max[:]
         bones[target.head].rotation_euler = [
-            remap(math.radians(head_rot[0]) + head_offset.x, *bs),
-            remap(math.radians(head_rot[1]) + head_offset.y, *bs),
-            remap(math.radians(head_rot[2]) + head_offset.z, *bs)]
+            remap(math.radians(head_rot[0]), *bs),
+            remap(math.radians(head_rot[1]), *bs),
+            remap(math.radians(head_rot[2]), *bs)]
 
-    eye_l_rot = data[52:54]
-    eye_r_rot = data[54:56]
+    eye_l_rot = data[58:60]
+    eye_r_rot = data[60:62]
 
     if target.eyes_rot_enabled:
         bs = target.eyes_rot_min_max[:]
@@ -366,14 +365,12 @@ class VisagePreferences(bpy.types.AddonPreferences):
 
     host : bpy.props.StringProperty(default='127.0.0.1')
     port : bpy.props.IntProperty(default=8000)
-    head_offset : bpy.props.FloatVectorProperty(subtype='EULER')
     frame_latency : bpy.props.IntProperty(default=0)
 
     def draw(self, context):
         row = self.layout.row(align=True)
         row.prop(self, 'host', text='Host')
         row.prop(self, 'port', text='Port')
-        self.layout.prop(self, 'head_offset', text='Head Offset')
         self.layout.prop(self, 'frame_latency', text='Frame Latency')
 
 
@@ -537,8 +534,6 @@ class VisagePanelTarget(bpy.types.Panel):
         col.prop(settings, 'eye_left')
         col.prop(settings, 'eye_right')
 
-        self.layout.prop(prefs, 'head_offset', text='Head Offset')
-
 
 class VisagePanelKeys(bpy.types.Panel):
     bl_idname = 'VS_PT_visage_keys'
@@ -666,9 +661,9 @@ class VisagePose(bpy.types.Operator):
 
     def execute(self, context):
         if self.reset:
-            state.neutral_pose = [0.] * 52
+            state.neutral = [0.] * 63
         else:
-            state.neutral_pose = state.input_frame[:52]
+            state.neutral = state.input_frame[:63]
         return {'FINISHED'}
 
 

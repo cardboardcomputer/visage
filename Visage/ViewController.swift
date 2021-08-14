@@ -40,6 +40,7 @@ class ViewController: UIViewController, UITextFieldDelegate, ARSCNViewDelegate, 
         let addr = defaults.string(forKey: "address") ?? "localhost:8080"
         addressField.text = addr
         address = addr
+        loadAddress(addr)
         
         sceneView.showsStatistics = true
         sceneView.delegate = self
@@ -180,16 +181,16 @@ class ViewController: UIViewController, UITextFieldDelegate, ARSCNViewDelegate, 
         let eyeRight = face.rightEyeTransform.eulerAngles
         let headRot = face.transform.eulerAngles
         
-        data[52] = -eyeLeft.z
-        data[53] = eyeLeft.y
-        data[54] = -eyeRight.z
-        data[55] = eyeRight.y
-        data[56] = -headRot.z
-        data[57] = headRot.y
-        data[58] = headRot.x
-        data[59] = face.transform.columns.3[0]
-        data[60] = face.transform.columns.3[1]
-        data[61] = face.transform.columns.3[2]
+        data[52] = face.transform.columns.3[0]
+        data[53] = face.transform.columns.3[1]
+        data[54] = face.transform.columns.3[2]
+        data[55] = -headRot.z
+        data[56] = headRot.y
+        data[57] = headRot.x
+        data[58] = -eyeLeft.z
+        data[59] = eyeLeft.y
+        data[60] = -eyeRight.z
+        data[61] = eyeRight.y
         
         // time
 
