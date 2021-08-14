@@ -23,7 +23,7 @@ state = None # visage.state is like bpy.context
 mp = multiprocessing.get_context('fork')
 
 
-THREAD_SLEEP = 1. / 60.
+UPDATE_STEP = 1. / 60.
 
 
 SHAPE_KEYS = [
@@ -148,6 +148,14 @@ def redraw_areas():
         area.tag_redraw()
 
 
+def get_timeline_frame():
+    return bpy.context.scene.frame_current + bpy.context.scene.frame_subframe
+
+
+def get_timeline_seconds():
+    return get_timeline_frame() / bpy.context.scene.render.fps
+
+
 def update_weight_params(self, value):
     t = bpy.context.scene.visage_target
 
@@ -255,7 +263,13 @@ def keyframe_visage_recording(target, prefs):
 
 
 def timer_preview_update():
+    # wraper function needed for unregister
     return state.preview_update()
+
+
+def timer_record_update():
+    # wraper function needed for unregister
+    return state.record_update()
 
 
 def handler_frame_change_post(scene):
@@ -265,7 +279,12 @@ def handler_frame_change_post(scene):
     if wm.visage_preview:
         apply_visage_data(state.target, state.prefs, state.input_frame)
 
-    if wm.visage_record and screen.is_animation_playing and not screen.is_scrubbing:
+    if (not state.use_remote_timing
+        and wm.visage_record
+        and screen.is_animation_playing
+        and not screen.is_scrubbing):
+
+        state.receiver.wait_for_frame()
         record_visage_data(state.target, state.prefs)
 
 
@@ -281,22 +300,46 @@ def maybe_toggle_frame_change_handler():
 
 class VisageState:
     # local singleton only
+
+    '''
+    `input_status`:
+        0:  receiving, thread/fork is running
+        1:  recording, queueing up frames for subframe timing
+        2:  new frame received flag
+
+    `input_timing`:
+        0: recording start (seconds on timeline)
+        1: recording start (broadcast uptime)
+
+    `input_frame`:
+        the latest frame data received
+
+    `input_buffer`:
+        queue of received frame data when using subframe timing
+    '''
+
     def __init__(self):
-        self.receiver = None
         self.target = None
         self.prefs = None
+        self.receiver = None
         self.neutral = [0.] * 63
         self.recording = {}
+        self.use_remote_timing = False
+
         self.weight_params = []
         for i in range(52):
             self.weight_params.append([0., 1., True]) # [bias, scale, enabled]
+
         self.fork = True if sys.platform == 'linux' else False
+
         if self.fork:
-            self.input_status = mp.Array('i', [0, 0, 0, 0], lock=False)
+            self.input_status = mp.Array('i', [0, 0, 0], lock=False)
+            self.input_timing = mp.Array('d', [0, 0], lock=False)
             self.input_frame = mp.Array('d', [0] * 63, lock=False)
             self.input_buffer = mp.Queue()
         else:
-            self.input_status = [0, 0, 0, 0]
+            self.input_status = [0, 0]
+            self.input_timing = [0, 0]
             self.input_frame = [0] * 63
             self.input_buffer = queue.Queue()
 
@@ -307,6 +350,7 @@ class VisageState:
     def start_receiver(self):
         self.target = bpy.context.scene.visage_target
         self.prefs = bpy.context.preferences.addons['visage'].preferences
+        self.use_remote_timing = self.target.keyframe_source == 'BROADCAST'
         if self.receiver is not None:
             self.receiver.reset()
         else:
@@ -319,13 +363,27 @@ class VisageState:
         self.receiver = None
 
     def preview_update(self):
-        wm = bpy.context.window_manager
         if self.receiver:
             apply_visage_data(self.target, self.prefs, self.input_frame)
-        return 1 / 60
+        return UPDATE_STEP
 
+    def record_update(self):
+        if self.use_remote_timing and self.receiver is not None:
+            screen = bpy.context.screen
+            is_playing = screen.is_animation_playing and not screen.is_scrubbing
+            if is_playing and not self.receiver.is_recording:
+                self.receiver.start_recording()
+            if not is_playing and self.receiver.is_recording:
+                self.receiver.stop_recording()
+            while not self.input_buffer.empty():
+                data = self.input_buffer.get_nowait()
+                if data:
+                    frame = data[-1] * bpy.context.scene.render.fps
+                    self.recording[frame] = data
+        return UPDATE_STEP
 
-state = VisageState()
+    def get_frame_count(self):
+        return len(self.recording)
 
 
 class VisageReceiver:
@@ -342,6 +400,10 @@ class VisageReceiver:
     def is_running(self):
         return state.input_status[0] == 1
 
+    @property
+    def is_recording(self):
+        return state.input_status[1] == 1
+
     def start(self):
         if self.process and self.process.is_alive():
             return
@@ -351,10 +413,11 @@ class VisageReceiver:
                 method = mp.Process
             else:
                 method = threading.Thread
-                self.sleep = THREAD_SLEEP
+                self.sleep = UPDATE_STEP
             self.process = method(
                 target=self.loop, args=(
                     state.input_status,
+                    state.input_timing,
                     state.input_frame,
                     state.input_buffer))
             self.process.start()
@@ -362,16 +425,35 @@ class VisageReceiver:
     def stop(self):
         state.input_status[0] = 2
 
+    def start_recording(self):
+        state.input_status[1] = 1
+        state.input_timing[0] = get_timeline_seconds()
+
+    def stop_recording(self):
+        state.input_status[1] = 0
+
     def timeout(self):
         if self.server:
             self.server.timed_out = True
 
-    def loop(self, state, data, frames):
+    def wait_for_frame(self, iterations=60):
+        count = 0
+        while state.input_status[2] == 0:
+            time.sleep(UPDATE_STEP)
+            count += 1
+            if count >= iterations:
+                break
+
+    def loop(self, state, timing, data, frames):
         print('Visage OSC receiver started')
 
         self.state = state
+        self.timing = timing
         self.data = data
         self.frames = frames
+        self.marked = False
+        self.offset_timeline = 0
+        self.offset_timestamp = 0
 
         dispatch = dispatcher.Dispatcher()
         dispatch.map('/visage', self.receive)
@@ -396,17 +478,30 @@ class VisageReceiver:
 
     def receive(self, *args):
         data = args[1:]
-        self.data[:] = data
-        if self.state[3] == 1:
+        is_recording = self.state[1] == 1
+
+        if is_recording and not self.marked:
+            self.marked = True
+            self.offset_timeline = self.timing[0]
+            self.offset_timestamp = self.timing[1] = data[-1]
+        if not is_recording and self.marked:
+            self.marked = False
+
+        if is_recording:
+            timestamp = data[-1] + self.offset_timeline - self.offset_timestamp
+            data = data[:-1] + (timestamp,)
             self.frames.put_nowait(data)
+
+        self.data[:] = data
+        self.state[2] = 1
 
 
 class VisagePreferences(bpy.types.AddonPreferences):
     bl_idname = 'visage'
 
-    host : bpy.props.StringProperty(default='localhost')
-    port : bpy.props.IntProperty(default=8080)
-    frame_latency : bpy.props.IntProperty(default=0)
+    host : bpy.props.StringProperty(default='localhost', name='Host')
+    port : bpy.props.IntProperty(default=8080, name='Port')
+    frame_latency : bpy.props.IntProperty(default=0, name='Frame Latency')
 
     def draw(self, context):
         row = self.layout.row(align=True)
@@ -481,6 +576,19 @@ class VisageTarget(bpy.types.PropertyGroup):
     filter_bias : bpy.props.FloatProperty(default=0)
     filter_scale : bpy.props.FloatProperty(default=1)
 
+    KEYFRAME_SOURCE_ITEMS = [
+        ('TIMELINE', 'Key On Timeline Frame', 'Key on current frame on the timeline'),
+        ('BROADCAST', 'Key On Broadcast Frame', 'Key on original broadcast timestamp'),
+    ]
+
+    def update_keyframe_source(self, context):
+        state.use_remote_timing = self.keyframe_source == 'BROADCAST'
+
+    keyframe_source : bpy.props.EnumProperty(
+        items=KEYFRAME_SOURCE_ITEMS,
+        default='TIMELINE', name='Keyframe Mode',
+        update=update_keyframe_source)
+
 
 class VisagePanelAnimation(bpy.types.Panel):
     bl_idname = 'VS_PT_visage_anim'
@@ -492,6 +600,7 @@ class VisagePanelAnimation(bpy.types.Panel):
     def draw(self, context):
         wm = context.window_manager
         prefs = context.preferences.addons['visage'].preferences
+        target = context.scene.visage_target
         layout = self.layout
         col = layout.column(align=True)
         row = col.row(align=True)
@@ -499,10 +608,11 @@ class VisagePanelAnimation(bpy.types.Panel):
         row.operator('vs.record', text='RECORD', depress=True if wm.visage_record else False)
         row = col.row(align=True)
         row.scale_y = 1.25
-        row.operator('vs.record_save', text='Save (%s)' % len(state.recording))
+        row.operator('vs.record_save', text='Save (%s)' % state.get_frame_count())
         row.operator('vs.record_key', text='', icon='KEYFRAME')
         row.operator('vs.record_clear', text='Clear')
         self.layout.prop(prefs, 'frame_latency', text='Frame Latency')
+        self.layout.prop(target, 'keyframe_source', text='')
 
 
 class VisagePanelData(bpy.types.Panel):
@@ -755,6 +865,12 @@ class VisageRecord(bpy.types.Operator):
         #     bpy.ops.vs.preview()
         # elif not wm.visage_record:
         #     wm.visage_preview = False
+        if wm.visage_record:
+            if not bpy.app.timers.is_registered(timer_record_update):
+                bpy.app.timers.register(timer_record_update)
+        else:
+            if bpy.app.timers.is_registered(timer_record_update):
+                bpy.app.timers.unregister(timer_record_update)
         maybe_toggle_frame_change_handler()
         return {'FINISHED'}
 
@@ -804,7 +920,8 @@ class VisageShapeKeys(bpy.types.Operator):
         return context.object and context.object.type == 'MESH'
 
     def execute(self, context):
-        obj = context.object
+        target = context.scene.visage_target
+        obj = bpy.data.meshes[target.face]
         if not obj.data.shape_keys or 'Basis' not in obj.data.shape_keys.key_blocks:
             basis = obj.shape_key_add(name='Basis', from_mix=False)
         else:
@@ -825,8 +942,8 @@ class VisageDestutter(bpy.types.Operator):
         return context.object and context.object.type == 'MESH'
 
     def execute(self, context):
-        obj = context.object
         target = context.scene.visage_target
+        obj = bpy.data.meshes[target.face]
         action = obj.data.shape_keys.animation_data.action
 
         lookup = {}
@@ -880,8 +997,8 @@ class VisageSmooth(bpy.types.Operator):
         return context.object and context.object.type == 'MESH'
 
     def execute(self, context):
-        obj = context.object
         target = context.scene.visage_target
+        obj = bpy.data.meshes[target.face]
         action = obj.data.shape_keys.animation_data.action
 
         splines = {}
@@ -980,14 +1097,25 @@ __REGISTER_PROPS__ = (
 
 @bpy.app.handlers.persistent
 def handler_load_pre(*args):
-    state.stop_receiver()
+    if state is not None:
+        state.stop_receiver()
+
     if handler_frame_change_post in bpy.app.handlers.frame_change_post:
         bpy.app.handlers.frame_change_post.remove(handler_frame_change_post)
-    if bpy.app.timers.is_registered(state.preview_update):
-        bpy.app.timers.unregister(state.preview_update)
+
+    if bpy.app.timers.is_registered(timer_preview_update):
+        bpy.app.timers.unregister(timer_preview_update)
+
+    if bpy.app.timers.is_registered(timer_record_update):
+        bpy.app.timers.unregister(timer_record_update)
 
 
 def register():
+    global state
+
+    if state is None:
+        state = VisageState()
+
     for cls in __REGISTER_CLASSES__:
         bpy.utils.register_class(cls)
 
