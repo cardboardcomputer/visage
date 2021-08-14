@@ -16,7 +16,7 @@ bl_info = {
 }
 
 
-state = None
+state = None # visage.state is like bpy.context
 
 
 SHAPE_KEYS = [
@@ -270,6 +270,7 @@ def maybe_toggle_frame_change_handler():
 
 
 class VisageState:
+    # local singleton only
     def __init__(self):
         self.receiver = None
         self.target = None
@@ -311,6 +312,7 @@ state = VisageState()
 
 
 class VisageReceiver:
+    # local singleton only
     def __init__(self, host, port):
         self.host = host
         self.port = port
