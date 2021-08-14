@@ -2,7 +2,6 @@ import bpy
 import gc
 import time
 import math
-import copy
 import multiprocessing
 from pythonosc import dispatcher, osc_server
 
@@ -17,10 +16,10 @@ bl_info = {
 }
 
 
-class State: pass
+class VisageState: pass
 
 
-state = State()
+state = VisageState()
 state.receiver = None
 state.target = None
 state.prefs = None
@@ -94,9 +93,9 @@ for i, n in enumerate(SHAPE_KEYS):
     SHAPE_KEY_IDX_TO_NAME[i] = n
 
 
-SHAPE_KEY_NAME_TO_IDS = {}
+SHAPE_KEY_NAME_TO_IDX = {}
 for i, n in enumerate(SHAPE_KEYS):
-    SHAPE_KEY_NAME_TO_IDS[n] = i
+    SHAPE_KEY_NAME_TO_IDX[n] = i
 
 
 SHAPE_KEYS_MIRROR_LEFT = {}
@@ -155,7 +154,6 @@ def redraw_areas():
 def start_global_receiver():
     state.target = bpy.context.scene.visage_target
     state.prefs = bpy.context.preferences.addons['visage'].preferences
-
     if state.receiver is not None:
         state.receiver.reset()
     else:
@@ -314,7 +312,6 @@ class VisageReceiver:
         self.port = port
         self.process = None
         self.server = None
-        self.status = 0
 
     @property
     def is_running(self):
@@ -324,14 +321,12 @@ class VisageReceiver:
         if self.process and self.process.is_alive():
             return
         else:
-            self.status = 1
             state.input_status[0] = 1
             self.process = multiprocessing.Process(
                 target=self.loop, args=(state.input_status, state.input_frame))
             self.process.start()
 
     def stop(self):
-        self.status = 2
         state.input_status[0] = 2
 
     def timeout(self):
@@ -341,13 +336,13 @@ class VisageReceiver:
     def loop(self, state, data):
         print('Visage OSC receiver started')
 
-        self.state = state
         self.data = data
 
         dispatch = dispatcher.Dispatcher()
         dispatch.map('/visage', self.receive)
 
-        self.server = server = osc_server.BlockingOSCUDPServer((self.host, self.port), dispatch)
+        self.server = server = osc_server.BlockingOSCUDPServer(
+            (self.host, self.port), dispatch)
         server.handle_timeout = self.timeout
         server.timeout = 0
 
@@ -360,7 +355,6 @@ class VisageReceiver:
 
         self.server.server_close()
         self.server = None
-        self.status = 0
         state[0] = 0
 
     def receive(self, *args):

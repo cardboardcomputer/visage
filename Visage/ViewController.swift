@@ -18,10 +18,10 @@ class ViewController: UIViewController, UITextFieldDelegate, ARSCNViewDelegate, 
     var address : String = "localhost:8080"
     var ipaddr : String = "localhost"
     var port : Int = 8080
-    var client = OSCClient(address:"10.0.0.100", port: 8000)
+    var client = OSCClient(address:"localhost", port: 8080)
     var last : UInt64 = 0
     var delta : Int = 0
-    var data : [Float] = [Float](repeating:0.0, count:63)
+    var data : [Float] = [Float](repeating: 0.0, count: 63)
         
     @IBOutlet var sceneView: ARSCNView!
     @IBOutlet weak var addressField: UITextField!
@@ -41,24 +41,10 @@ class ViewController: UIViewController, UITextFieldDelegate, ARSCNViewDelegate, 
         addressField.text = addr
         address = addr
         
+        sceneView.showsStatistics = true
         sceneView.delegate = self
         sceneView.session.delegate = self
         addressField.delegate = self
-        
-        /*
-        sceneView.scene.background.contents = UIColor.gray
-        sceneView.rendersContinuously = true
-        sceneView.preferredFramesPerSecond = 60
-        */
-        sceneView.showsStatistics = true
-        
-        // client.send(OSCMessage(OSCAddressPattern("/test"), 1))
-
-        /*_ = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { (_) in
-            if let f = self.face {
-                print(f.blendShapes[ARFaceAnchor.BlendShapeLocation.cheekPuff]?.floatValue)
-            }
-        }*/
     }
     
     override func viewWillAppear(_ animated: Bool) {
@@ -219,9 +205,9 @@ extension matrix_float4x4 {
         return radians * 180 / (Float32.pi)
     }
     var translation: SCNVector3 {
-       get {
-           return SCNVector3Make(columns.3.x, columns.3.y, columns.3.z)
-       }
+        get {
+            return SCNVector3Make(columns.3.x, columns.3.y, columns.3.z)
+        }
     }
     // Retrieve euler angles from a quaternion matrix
     var eulerAngles: SCNVector3 {
@@ -252,6 +238,6 @@ extension matrix_float4x4 {
             
             /// return array containing ypr values
             return SCNVector3(yaw, pitch, roll)
-            }
+        }
     }
 }
