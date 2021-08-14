@@ -16,20 +16,48 @@ bl_info = {
 }
 
 
-class VisageState: pass
+class VisageState:
+    def __init__(self):
+        self.receiver = None
+        self.target = None
+        self.prefs = None
+        self.neutral = [0.] * 63
+        self.recording = {}
+        self.weight_params = []
+        for i in range(52):
+            self.weight_params.append([0., 1., True]) # [bias, scale, enabled]
+        self.input_status = multiprocessing.Array('i', [0, 0, 0], lock=False)
+        self.input_frame = multiprocessing.Array('d', [0] * 63, lock=False)
+
+    def start_receiver(self):
+        self.target = bpy.context.scene.visage_target
+        self.prefs = bpy.context.preferences.addons['visage'].preferences
+        if self.receiver is not None:
+            self.receiver.reset()
+        else:
+            self.receiver = VisageReceiver(self.prefs.host, self.prefs.port)
+        self.receiver.start()
+
+    def stop_receiver(self):
+        if self.receiver is not None:
+            self.receiver.stop()
+        self.receiver = None
+
+    def is_receiver_running(self):
+        return self.receiver and self.receiver.is_running
+
+    def preview_step(self):
+        wm = bpy.context.window_manager
+        if self.receiver:
+            apply_visage_data(self.target, self.prefs, self.input_frame)
+        return 1 / 60
 
 
 state = VisageState()
-state.receiver = None
-state.target = None
-state.prefs = None
-state.neutral = [0.] * 63
-state.recording = {}
-state.weight_params = []
-for i in range(52):
-    state.weight_params.append([0., 1., True]) # [bias, scale, enabled]
-state.input_status = multiprocessing.Array('i', [0, 0, 0], lock=False)
-state.input_frame = multiprocessing.Array('d', [0] * 63, lock=False)
+
+
+def preview_timer():
+    return state.preview_step()
 
 
 SHAPE_KEYS = [
@@ -149,33 +177,6 @@ def remap(v, b, s):
 def redraw_areas():
     for area in bpy.context.screen.areas:
         area.tag_redraw()
-
-
-def start_global_receiver():
-    state.target = bpy.context.scene.visage_target
-    state.prefs = bpy.context.preferences.addons['visage'].preferences
-    if state.receiver is not None:
-        state.receiver.reset()
-    else:
-        state.receiver = VisageReceiver(state.prefs.host, state.prefs.port)
-    state.receiver.start()
-
-
-def stop_global_receiver():
-    if state.receiver is not None:
-        state.receiver.stop()
-    state.receiver = None
-
-
-def is_global_receiver_running():
-    return state.receiver and state.receiver.is_running
-
-
-def global_preview_step():
-    wm = bpy.context.window_manager
-    if state.receiver:
-        apply_visage_data(state.target, state.prefs, state.input_frame)
-    return 1 / 60
 
 
 def update_weight_params(self, value):
@@ -487,7 +488,7 @@ class VisagePanelData(bpy.types.Panel):
         col = self.layout.column(align=True)
         row = col.row(align=True)
         row.scale_y = 1.25
-        if not is_global_receiver_running():
+        if not state.is_receiver_running():
             row.operator('vs.start', text='Receive', depress=False)
         else:
             row.operator('vs.stop', text='Receive', depress=True)
@@ -640,7 +641,7 @@ class VisageStart(bpy.types.Operator):
     bl_label = 'Start Visage Receiver'
 
     def execute(self, context):
-        start_global_receiver()
+        state.start_receiver()
         return {'FINISHED'}
 
 
@@ -649,7 +650,7 @@ class VisageStop(bpy.types.Operator):
     bl_label = 'Stop Visage Receiver'
 
     def execute(self, context):
-        stop_global_receiver()
+        state.stop_receiver()
         return {'FINISHED'}
 
 
@@ -692,11 +693,11 @@ class VisagePreview(bpy.types.Operator):
         wm = context.window_manager
         wm.visage_preview = not wm.visage_preview
         if wm.visage_preview:
-            if not bpy.app.timers.is_registered(global_preview_step):
-                bpy.app.timers.register(global_preview_step)
+            if not bpy.app.timers.is_registered(preview_timer):
+                bpy.app.timers.register(preview_timer)
         else:
-            if bpy.app.timers.is_registered(global_preview_step):
-                bpy.app.timers.unregister(global_preview_step)
+            if bpy.app.timers.is_registered(preview_timer):
+                bpy.app.timers.unregister(preview_timer)
         maybe_toggle_frame_change_handler()
         return {'FINISHED'}
 
@@ -939,11 +940,11 @@ __REGISTER_PROPS__ = (
 
 @bpy.app.handlers.persistent
 def handler_load_pre(*args):
-    stop_global_receiver()
+    state.stop_receiver()
     if handler_frame_change_post in bpy.app.handlers.frame_change_post:
         bpy.app.handlers.frame_change_post.remove(handler_frame_change_post)
-    if bpy.app.timers.is_registered(global_preview_step):
-        bpy.app.timers.unregister(global_preview_step)
+    if bpy.app.timers.is_registered(state.preview_step):
+        bpy.app.timers.unregister(state.preview_step)
 
 
 def register():
@@ -957,7 +958,7 @@ def register():
 
 
 def unregister():
-    stop_global_receiver()
+    state.stop_receiver()
 
     for cls in __REGISTER_CLASSES__:
         bpy.utils.unregister_class(cls)
