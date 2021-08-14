@@ -1,10 +1,9 @@
 import bpy
+import gc
 import time
 import math
 import copy
-import gc
 import multiprocessing
-
 from pythonosc import dispatcher, osc_server
 
 
@@ -16,6 +15,11 @@ bl_info = {
     'description': 'Receives OSC messages from Visage',
     'category': 'Animation',
 }
+
+
+RECEIVER = None
+TARGET = None
+PREFS = None
 
 
 SHAPE_KEYS = [
@@ -124,20 +128,15 @@ for i, n in enumerate(SHAPE_KEYS):
             SHAPE_KEY_GROUP[n] = group.capitalize()
 
 
-VISAGE_NEUTRAL = [0.] * 52
-VISAGE_RECORD = {}
-VISAGE_PARAMS_DATA = []
+NEUTRAL_POSE = [0.] * 52
+RECORD_FRAMES = {}
+PARAMS_DATA = []
 for i in range(52):
-    VISAGE_PARAMS_DATA.append([0., 1., True]) # [bias, scale, enabled]
+    PARAMS_DATA.append([0., 1., True]) # [bias, scale, enabled]
 
 
-VISAGE_STATE = multiprocessing.Array('i', [0, 0, 0], lock=False)
-VISAGE_FRAME = multiprocessing.Array('d', [0] * 63, lock=False)
-
-
-RECEIVER = None
-TARGET = None
-PREFS = None
+INPUT_STATE = multiprocessing.Array('i', [0, 0, 0], lock=False)
+INPUT_FRAME = multiprocessing.Array('d', [0] * 63, lock=False)
 
 
 def lerp(a, b, v):
@@ -165,7 +164,7 @@ def start_global_receiver():
         RECEIVER.reset()
     else:
         prefs = bpy.context.preferences.addons['visage'].preferences
-        RECEIVER = Receiver(prefs.host, prefs.port)
+        RECEIVER = VisageReceiver(prefs.host, prefs.port)
     RECEIVER.start()
 
 
@@ -185,7 +184,7 @@ def is_global_receiver_running():
 def global_preview_step():
     wm = bpy.context.window_manager
     if RECEIVER:
-        apply_visage_data(TARGET, PREFS, VISAGE_FRAME)
+        apply_visage_data(TARGET, PREFS, INPUT_FRAME)
     return 1 / 60
 
 
@@ -202,7 +201,7 @@ def update_weight_params(self, value):
     enabled += list(t.sub_mouth_enabled) if t.mouth_enabled else [False] * 23
     enabled += list(t.sub_tongue_enabled) if t.tongue_enabled else [False]
 
-    for i, data in enumerate(VISAGE_PARAMS_DATA):
+    for i, data in enumerate(PARAMS_DATA):
         data[0] = remap_min[i]
         data[1] = remap_max[i]
         data[2] = enabled[i]
@@ -221,11 +220,11 @@ def apply_visage_data(target, prefs, data):
         mirror = None
 
     weights = data[:52]
-    weights = [x - y for (x, y) in zip(weights, VISAGE_NEUTRAL)]
+    weights = [x - y for (x, y) in zip(weights, NEUTRAL_POSE)]
 
     if mirror:
         for i, weight in enumerate(weights):
-            bias, scale, enabled = VISAGE_PARAMS_DATA[i]
+            bias, scale, enabled = PARAMS_DATA[i]
             if enabled:
                 name = SHAPE_KEY_IDX_TO_NAME[i]
                 value = remap(weight, bias, scale)
@@ -235,7 +234,7 @@ def apply_visage_data(target, prefs, data):
                     key_blocks[other].value = value
     else:
         for i, weight in enumerate(weights):
-            bias, scale, enabled = VISAGE_PARAMS_DATA[i]
+            bias, scale, enabled = PARAMS_DATA[i]
             if enabled:
                 key_blocks[SHAPE_KEY_IDX_TO_NAME[i]].value = remap(weight, bias, scale)
 
@@ -263,18 +262,18 @@ def apply_visage_data(target, prefs, data):
 
 def record_visage_data(target, prefs):
     scene = bpy.context.scene
-    VISAGE_RECORD[scene.frame_current] = VISAGE_FRAME[:]
+    RECORD_FRAMES[scene.frame_current] = INPUT_FRAME[:]
 
 
 def keyframe_visage_recording(target, prefs):
-    for frame, frame_data in VISAGE_RECORD.items():
+    for frame, frame_data in RECORD_FRAMES.items():
         offset_frame = frame - prefs.frame_latency
         apply_visage_data(target, prefs, frame_data)
         weights = frame_data[:52]
 
         for i, weight in enumerate(weights):
             shape = SHAPE_KEY_IDX_TO_NAME[i]
-            bias, scale, enabled = VISAGE_PARAMS_DATA[i]
+            bias, scale, enabled = PARAMS_DATA[i]
             if enabled:
                 target.face.shape_keys.keyframe_insert(
                     frame=offset_frame,
@@ -292,7 +291,7 @@ def keyframe_visage_recording(target, prefs):
                 frame=offset_frame,
                 data_path='pose.bones["%s"].rotation_euler' % target.eye_right)
 
-    VISAGE_RECORD.clear()
+    RECORD_FRAMES.clear()
     gc.collect()
 
 
@@ -301,7 +300,7 @@ def handler_frame_change_post(scene):
     screen = bpy.context.screen
 
     if wm.visage_preview:
-        apply_visage_data(TARGET, PREFS, VISAGE_FRAME)
+        apply_visage_data(TARGET, PREFS, INPUT_FRAME)
 
     if wm.visage_record and screen.is_animation_playing and not screen.is_scrubbing:
         record_visage_data(TARGET, PREFS)
@@ -317,16 +316,7 @@ def maybe_toggle_frame_change_handler():
             bpy.app.handlers.frame_change_post.remove(handler_frame_change_post)
 
 
-@bpy.app.handlers.persistent
-def handler_load_pre(*args):
-    stop_global_receiver()
-    if handler_frame_change_post in bpy.app.handlers.frame_change_post:
-        bpy.app.handlers.frame_change_post.remove(handler_frame_change_post)
-    if bpy.app.timers.is_registered(global_preview_step):
-        bpy.app.timers.unregister(global_preview_step)
-
-
-class Receiver:
+class VisageReceiver:
     def __init__(self, host, port):
         self.host = host
         self.port = port
@@ -336,21 +326,21 @@ class Receiver:
 
     @property
     def is_running(self):
-        return VISAGE_STATE[0] == 1
+        return INPUT_STATE[0] == 1
 
     def start(self):
         if self.process and self.process.is_alive():
             return
         else:
             self.status = 1
-            VISAGE_STATE[0] = 1
+            INPUT_STATE[0] = 1
             self.process = multiprocessing.Process(
-                target=self.loop, args=(VISAGE_STATE, VISAGE_FRAME))
+                target=self.loop, args=(INPUT_STATE, INPUT_FRAME))
             self.process.start()
 
     def stop(self):
         self.status = 2
-        VISAGE_STATE[0] = 2
+        INPUT_STATE[0] = 2
 
     def timeout(self):
         if self.server:
@@ -469,7 +459,7 @@ class VisageTarget(bpy.types.PropertyGroup):
 
 
 class VisagePanelAnimation(bpy.types.Panel):
-    bl_idname = 'VISAGE_PT_visage_anim'
+    bl_idname = 'VS_PT_visage_anim'
     bl_label = 'Animation'
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
@@ -485,14 +475,14 @@ class VisagePanelAnimation(bpy.types.Panel):
         row.operator('vs.record', text='RECORD', depress=True if wm.visage_record else False)
         row = col.row(align=True)
         row.scale_y = 1.25
-        row.operator('vs.record_save', text='Save (%s)' % len(VISAGE_RECORD))
+        row.operator('vs.record_save', text='Save (%s)' % len(RECORD_FRAMES))
         row.operator('vs.record_key', text='', icon='KEYFRAME')
         row.operator('vs.record_clear', text='Clear')
         self.layout.prop(prefs, 'frame_latency', text='Frame Latency')
 
 
 class VisagePanelData(bpy.types.Panel):
-    bl_idname = 'VISAGE_PT_visage_data'
+    bl_idname = 'VS_PT_visage_data'
     bl_label = 'Data'
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
@@ -523,7 +513,7 @@ class VisagePanelData(bpy.types.Panel):
 
 
 class VisagePanelActor(bpy.types.Panel):
-    bl_idname = 'VISAGE_PT_visage_actor'
+    bl_idname = 'VS_PT_visage_actor'
     bl_label = 'Actor'
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
@@ -543,7 +533,7 @@ class VisagePanelActor(bpy.types.Panel):
 
 
 class VisagePanelTarget(bpy.types.Panel):
-    bl_idname = 'VISAGE_PT_visage_target'
+    bl_idname = 'VS_PT_visage_target'
     bl_label = 'Target'
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
@@ -565,7 +555,7 @@ class VisagePanelTarget(bpy.types.Panel):
 
 
 class VisagePanelKeys(bpy.types.Panel):
-    bl_idname = 'VISAGE_PT_visage_keys'
+    bl_idname = 'VS_PT_visage_keys'
     bl_label = 'Parameters'
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
@@ -636,7 +626,7 @@ class VisagePanelKeys(bpy.types.Panel):
 
 
 class VisagePanelFilter(bpy.types.Panel):
-    bl_idname = 'VISAGE_PT_visage_filter'
+    bl_idname = 'VS_PT_visage_filter'
     bl_label = 'Filter'
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
@@ -688,11 +678,11 @@ class VisagePose(bpy.types.Operator):
     reset : bpy.props.BoolProperty(default=False)
 
     def execute(self, context):
-        global VISAGE_NEUTRAL
+        global NEUTRAL_POSE
         if self.reset:
-            VISAGE_NEUTRAL = [0.] * 52
+            NEUTRAL_POSE = [0.] * 52
         else:
-            VISAGE_NEUTRAL = VISAGE_FRAME[:52]
+            NEUTRAL_POSE = INPUT_FRAME[:52]
         return {'FINISHED'}
 
 
@@ -778,7 +768,7 @@ class VisageRecordClear(bpy.types.Operator):
     bl_label = 'Clear'
 
     def execute(self, context):
-        VISAGE_RECORD.clear()
+        RECORD_FRAMES.clear()
         gc.collect()
         return {'FINISHED'}
 
@@ -965,6 +955,15 @@ __REGISTER_PROPS__ = (
     (bpy.types.WindowManager, 'visage_preview', bpy.props.BoolProperty()),
     (bpy.types.WindowManager, 'visage_record', bpy.props.BoolProperty()),
 )
+
+
+@bpy.app.handlers.persistent
+def handler_load_pre(*args):
+    stop_global_receiver()
+    if handler_frame_change_post in bpy.app.handlers.frame_change_post:
+        bpy.app.handlers.frame_change_post.remove(handler_frame_change_post)
+    if bpy.app.timers.is_registered(global_preview_step):
+        bpy.app.timers.unregister(global_preview_step)
 
 
 def register():
