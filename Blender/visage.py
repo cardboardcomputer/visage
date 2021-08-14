@@ -16,49 +16,7 @@ bl_info = {
 }
 
 
-class VisageState:
-    def __init__(self):
-        self.receiver = None
-        self.target = None
-        self.prefs = None
-        self.neutral = [0.] * 63
-        self.recording = {}
-        self.weight_params = []
-        for i in range(52):
-            self.weight_params.append([0., 1., True]) # [bias, scale, enabled]
-        self.input_status = multiprocessing.Array('i', [0, 0, 0], lock=False)
-        self.input_frame = multiprocessing.Array('d', [0] * 63, lock=False)
-
-    @property
-    def is_receiver_running(self):
-        return self.receiver and self.receiver.is_running
-
-    def start_receiver(self):
-        self.target = bpy.context.scene.visage_target
-        self.prefs = bpy.context.preferences.addons['visage'].preferences
-        if self.receiver is not None:
-            self.receiver.reset()
-        else:
-            self.receiver = VisageReceiver(self.prefs.host, self.prefs.port)
-        self.receiver.start()
-
-    def stop_receiver(self):
-        if self.receiver is not None:
-            self.receiver.stop()
-        self.receiver = None
-
-    def preview_step(self):
-        wm = bpy.context.window_manager
-        if self.receiver:
-            apply_visage_data(self.target, self.prefs, self.input_frame)
-        return 1 / 60
-
-
-state = VisageState()
-
-
-def preview_timer():
-    return state.preview_step()
+state = None
 
 
 SHAPE_KEYS = [
@@ -257,10 +215,10 @@ def record_visage_data(target, prefs):
 
 
 def keyframe_visage_recording(target, prefs):
-    for frame, frame_data in state.recording.items():
+    for frame, data in state.recording.items():
         offset_frame = frame - prefs.frame_latency
-        apply_visage_data(target, prefs, frame_data)
-        weights = frame_data[:52]
+        apply_visage_data(target, prefs, data)
+        weights = data[:52]
 
         for i, weight in enumerate(weights):
             shape = SHAPE_KEY_IDX_TO_NAME[i]
@@ -286,6 +244,10 @@ def keyframe_visage_recording(target, prefs):
     gc.collect()
 
 
+def timer_preview_update():
+    return state.preview_update()
+
+
 def handler_frame_change_post(scene):
     wm = bpy.context.window_manager
     screen = bpy.context.screen
@@ -305,6 +267,47 @@ def maybe_toggle_frame_change_handler():
     else:
         if handler_frame_change_post in bpy.app.handlers.frame_change_post:
             bpy.app.handlers.frame_change_post.remove(handler_frame_change_post)
+
+
+class VisageState:
+    def __init__(self):
+        self.receiver = None
+        self.target = None
+        self.prefs = None
+        self.neutral = [0.] * 63
+        self.recording = {}
+        self.weight_params = []
+        for i in range(52):
+            self.weight_params.append([0., 1., True]) # [bias, scale, enabled]
+        self.input_status = multiprocessing.Array('i', [0, 0, 0], lock=False)
+        self.input_frame = multiprocessing.Array('d', [0] * 63, lock=False)
+
+    @property
+    def is_receiver_running(self):
+        return self.receiver and self.receiver.is_running
+
+    def start_receiver(self):
+        self.target = bpy.context.scene.visage_target
+        self.prefs = bpy.context.preferences.addons['visage'].preferences
+        if self.receiver is not None:
+            self.receiver.reset()
+        else:
+            self.receiver = VisageReceiver(self.prefs.host, self.prefs.port)
+        self.receiver.start()
+
+    def stop_receiver(self):
+        if self.receiver is not None:
+            self.receiver.stop()
+        self.receiver = None
+
+    def preview_update(self):
+        wm = bpy.context.window_manager
+        if self.receiver:
+            apply_visage_data(self.target, self.prefs, self.input_frame)
+        return 1 / 60
+
+
+state = VisageState()
 
 
 class VisageReceiver:
@@ -383,7 +386,7 @@ class VisageTarget(bpy.types.PropertyGroup):
     eye_left : bpy.props.StringProperty(default='Eye.L', name='Eye.L')
     eye_right : bpy.props.StringProperty(default='Eye.R', name='Eye.R')
 
-    head_rot_enabled : bpy.props.BoolProperty(default=True)
+    head_rot_enabled : bpy.props.BoolProperty(default=False)
     eyes_rot_enabled : bpy.props.BoolProperty(default=True)
     head_rot_min_max : bpy.props.FloatVectorProperty(size=2, default=[0, 1])
     eyes_rot_min_max : bpy.props.FloatVectorProperty(size=2, default=[0, 1])
@@ -694,11 +697,11 @@ class VisagePreview(bpy.types.Operator):
         wm = context.window_manager
         wm.visage_preview = not wm.visage_preview
         if wm.visage_preview:
-            if not bpy.app.timers.is_registered(preview_timer):
-                bpy.app.timers.register(preview_timer)
+            if not bpy.app.timers.is_registered(timer_preview_update):
+                bpy.app.timers.register(timer_preview_update)
         else:
-            if bpy.app.timers.is_registered(preview_timer):
-                bpy.app.timers.unregister(preview_timer)
+            if bpy.app.timers.is_registered(timer_preview_update):
+                bpy.app.timers.unregister(timer_preview_update)
         maybe_toggle_frame_change_handler()
         return {'FINISHED'}
 
@@ -944,8 +947,8 @@ def handler_load_pre(*args):
     state.stop_receiver()
     if handler_frame_change_post in bpy.app.handlers.frame_change_post:
         bpy.app.handlers.frame_change_post.remove(handler_frame_change_post)
-    if bpy.app.timers.is_registered(state.preview_step):
-        bpy.app.timers.unregister(state.preview_step)
+    if bpy.app.timers.is_registered(state.preview_update):
+        bpy.app.timers.unregister(state.preview_update)
 
 
 def register():
