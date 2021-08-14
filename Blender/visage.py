@@ -125,6 +125,9 @@ for i, n in enumerate(SHAPE_KEYS):
             SHAPE_KEY_GROUP[n] = group.capitalize()
 
 
+del i, n, m, group, start, count # tidying
+
+
 def lerp(a, b, v):
     return a * (1 - v) + b * v
 
