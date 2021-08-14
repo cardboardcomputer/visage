@@ -17,9 +17,20 @@ bl_info = {
 }
 
 
-RECEIVER = None
-TARGET = None
-PREFS = None
+class State: pass
+
+
+state = State()
+state.receiver = None
+state.target = None
+state.prefs = None
+state.neutral_pose = [0.] * 52
+state.recording = {}
+state.weight_params = []
+for i in range(52):
+    state.weight_params.append([0., 1., True]) # [bias, scale, enabled]
+state.input_status = multiprocessing.Array('i', [0, 0, 0], lock=False)
+state.input_frame = multiprocessing.Array('d', [0] * 63, lock=False)
 
 
 SHAPE_KEYS = [
@@ -128,17 +139,6 @@ for i, n in enumerate(SHAPE_KEYS):
             SHAPE_KEY_GROUP[n] = group.capitalize()
 
 
-NEUTRAL_POSE = [0.] * 52
-RECORD_FRAMES = {}
-PARAMS_DATA = []
-for i in range(52):
-    PARAMS_DATA.append([0., 1., True]) # [bias, scale, enabled]
-
-
-INPUT_STATE = multiprocessing.Array('i', [0, 0, 0], lock=False)
-INPUT_FRAME = multiprocessing.Array('d', [0] * 63, lock=False)
-
-
 def lerp(a, b, v):
     return a * (1 - v) + b * v
 
@@ -153,38 +153,30 @@ def redraw_areas():
 
 
 def start_global_receiver():
-    global RECEIVER
-    global TARGET
-    global PREFS
+    state.target = bpy.context.scene.visage_target
+    state.prefs = bpy.context.preferences.addons['visage'].preferences
 
-    TARGET = target = bpy.context.scene.visage_target
-    PREFS = prefs = bpy.context.preferences.addons['visage'].preferences
-
-    if RECEIVER is not None:
-        RECEIVER.reset()
+    if state.receiver is not None:
+        state.receiver.reset()
     else:
-        prefs = bpy.context.preferences.addons['visage'].preferences
-        RECEIVER = VisageReceiver(prefs.host, prefs.port)
-    RECEIVER.start()
+        state.receiver = VisageReceiver(state.prefs.host, state.prefs.port)
+    state.receiver.start()
 
 
 def stop_global_receiver():
-    global RECEIVER
-
-    if RECEIVER is not None:
-        RECEIVER.stop()
-    RECEIVER = None
+    if state.receiver is not None:
+        state.receiver.stop()
+    state.receiver = None
 
 
 def is_global_receiver_running():
-    global RECEIVER
-    return RECEIVER and RECEIVER.is_running
+    return state.receiver and state.receiver.is_running
 
 
 def global_preview_step():
     wm = bpy.context.window_manager
-    if RECEIVER:
-        apply_visage_data(TARGET, PREFS, INPUT_FRAME)
+    if state.receiver:
+        apply_visage_data(state.target, state.prefs, state.input_frame)
     return 1 / 60
 
 
@@ -201,7 +193,7 @@ def update_weight_params(self, value):
     enabled += list(t.sub_mouth_enabled) if t.mouth_enabled else [False] * 23
     enabled += list(t.sub_tongue_enabled) if t.tongue_enabled else [False]
 
-    for i, data in enumerate(PARAMS_DATA):
+    for i, data in enumerate(state.weight_params):
         data[0] = remap_min[i]
         data[1] = remap_max[i]
         data[2] = enabled[i]
@@ -220,11 +212,11 @@ def apply_visage_data(target, prefs, data):
         mirror = None
 
     weights = data[:52]
-    weights = [x - y for (x, y) in zip(weights, NEUTRAL_POSE)]
+    weights = [x - y for (x, y) in zip(weights, state.neutral_pose)]
 
     if mirror:
         for i, weight in enumerate(weights):
-            bias, scale, enabled = PARAMS_DATA[i]
+            bias, scale, enabled = state.weight_params[i]
             if enabled:
                 name = SHAPE_KEY_IDX_TO_NAME[i]
                 value = remap(weight, bias, scale)
@@ -234,7 +226,7 @@ def apply_visage_data(target, prefs, data):
                     key_blocks[other].value = value
     else:
         for i, weight in enumerate(weights):
-            bias, scale, enabled = PARAMS_DATA[i]
+            bias, scale, enabled = state.weight_params[i]
             if enabled:
                 key_blocks[SHAPE_KEY_IDX_TO_NAME[i]].value = remap(weight, bias, scale)
 
@@ -262,18 +254,18 @@ def apply_visage_data(target, prefs, data):
 
 def record_visage_data(target, prefs):
     scene = bpy.context.scene
-    RECORD_FRAMES[scene.frame_current] = INPUT_FRAME[:]
+    state.recording[scene.frame_current] = state.input_frame[:]
 
 
 def keyframe_visage_recording(target, prefs):
-    for frame, frame_data in RECORD_FRAMES.items():
+    for frame, frame_data in state.recording.items():
         offset_frame = frame - prefs.frame_latency
         apply_visage_data(target, prefs, frame_data)
         weights = frame_data[:52]
 
         for i, weight in enumerate(weights):
             shape = SHAPE_KEY_IDX_TO_NAME[i]
-            bias, scale, enabled = PARAMS_DATA[i]
+            bias, scale, enabled = state.weight_params[i]
             if enabled:
                 target.face.shape_keys.keyframe_insert(
                     frame=offset_frame,
@@ -291,7 +283,7 @@ def keyframe_visage_recording(target, prefs):
                 frame=offset_frame,
                 data_path='pose.bones["%s"].rotation_euler' % target.eye_right)
 
-    RECORD_FRAMES.clear()
+    state.recording.clear()
     gc.collect()
 
 
@@ -300,10 +292,10 @@ def handler_frame_change_post(scene):
     screen = bpy.context.screen
 
     if wm.visage_preview:
-        apply_visage_data(TARGET, PREFS, INPUT_FRAME)
+        apply_visage_data(state.target, state.prefs, state.input_frame)
 
     if wm.visage_record and screen.is_animation_playing and not screen.is_scrubbing:
-        record_visage_data(TARGET, PREFS)
+        record_visage_data(state.target, state.prefs)
 
 
 def maybe_toggle_frame_change_handler():
@@ -326,21 +318,21 @@ class VisageReceiver:
 
     @property
     def is_running(self):
-        return INPUT_STATE[0] == 1
+        return state.input_status[0] == 1
 
     def start(self):
         if self.process and self.process.is_alive():
             return
         else:
             self.status = 1
-            INPUT_STATE[0] = 1
+            state.input_status[0] = 1
             self.process = multiprocessing.Process(
-                target=self.loop, args=(INPUT_STATE, INPUT_FRAME))
+                target=self.loop, args=(state.input_status, state.input_frame))
             self.process.start()
 
     def stop(self):
         self.status = 2
-        INPUT_STATE[0] = 2
+        state.input_status[0] = 2
 
     def timeout(self):
         if self.server:
@@ -475,7 +467,7 @@ class VisagePanelAnimation(bpy.types.Panel):
         row.operator('vs.record', text='RECORD', depress=True if wm.visage_record else False)
         row = col.row(align=True)
         row.scale_y = 1.25
-        row.operator('vs.record_save', text='Save (%s)' % len(RECORD_FRAMES))
+        row.operator('vs.record_save', text='Save (%s)' % len(state.recording))
         row.operator('vs.record_key', text='', icon='KEYFRAME')
         row.operator('vs.record_clear', text='Clear')
         self.layout.prop(prefs, 'frame_latency', text='Frame Latency')
@@ -662,6 +654,7 @@ class VisageStart(bpy.types.Operator):
         start_global_receiver()
         return {'FINISHED'}
 
+
 class VisageStop(bpy.types.Operator):
     bl_idname = 'vs.stop'
     bl_label = 'Stop Visage Receiver'
@@ -678,11 +671,10 @@ class VisagePose(bpy.types.Operator):
     reset : bpy.props.BoolProperty(default=False)
 
     def execute(self, context):
-        global NEUTRAL_POSE
         if self.reset:
-            NEUTRAL_POSE = [0.] * 52
+            state.neutral_pose = [0.] * 52
         else:
-            NEUTRAL_POSE = INPUT_FRAME[:52]
+            state.neutral_pose = state.input_frame[:52]
         return {'FINISHED'}
 
 
@@ -725,9 +717,8 @@ class VisageRecord(bpy.types.Operator):
     bl_label = 'Record'
 
     def execute(self, context):
-        global RECEIVER
         wm = context.window_manager
-        if not RECEIVER.is_running:
+        if not state.receiver.is_running:
             bpy.ops.vs.start()
         wm.visage_record = not wm.visage_record
         # if wm.visage_record and not wm.visage_preview:
@@ -768,7 +759,7 @@ class VisageRecordClear(bpy.types.Operator):
     bl_label = 'Clear'
 
     def execute(self, context):
-        RECORD_FRAMES.clear()
+        state.recording.clear()
         gc.collect()
         return {'FINISHED'}
 
