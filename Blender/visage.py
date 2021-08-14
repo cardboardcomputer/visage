@@ -124,6 +124,7 @@ for i, n in enumerate(SHAPE_KEYS):
             SHAPE_KEY_GROUP[n] = group.capitalize()
 
 
+VISAGE_NEUTRAL = [0.] * 52
 VISAGE_RECORD = {}
 VISAGE_PARAMS_DATA = []
 for i in range(52):
@@ -183,7 +184,7 @@ def is_global_receiver_running():
 
 def global_preview_step():
     wm = bpy.context.window_manager
-    if wm.visage_preview and RECEIVER:
+    if RECEIVER:
         apply_visage_data(TARGET, PREFS, VISAGE_FRAME)
     return 1 / 60
 
@@ -220,6 +221,7 @@ def apply_visage_data(target, prefs, data):
         mirror = None
 
     weights = data[:52]
+    weights = [x - y for (x, y) in zip(weights, VISAGE_NEUTRAL)]
 
     if mirror:
         for i, weight in enumerate(weights):
@@ -296,17 +298,13 @@ def keyframe_visage_recording(target, prefs):
 
 def handler_frame_change_post(scene):
     wm = bpy.context.window_manager
+    screen = bpy.context.screen
 
-    if wm.visage_preview or wm.visage_record:
-        target = bpy.context.scene.visage_target
-        prefs = bpy.context.preferences.addons['visage'].preferences
-        screen = bpy.context.screen
+    if wm.visage_preview:
+        apply_visage_data(TARGET, PREFS, VISAGE_FRAME)
 
-        if wm.visage_preview:
-            apply_visage_data(target, prefs, VISAGE_FRAME)
-
-        if wm.visage_record and screen.is_animation_playing and not screen.is_scrubbing:
-            record_visage_data(target, prefs)
+    if wm.visage_record and screen.is_animation_playing and not screen.is_scrubbing:
+        record_visage_data(TARGET, PREFS)
 
 
 def maybe_toggle_frame_change_handler():
@@ -524,6 +522,26 @@ class VisagePanelData(bpy.types.Panel):
         col.prop(prefs, 'host', text='')
 
 
+class VisagePanelActor(bpy.types.Panel):
+    bl_idname = 'VISAGE_PT_visage_actor'
+    bl_label = 'Actor'
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = 'Visage'
+
+    def draw(self, context):
+        wm = context.window_manager
+        prefs = context.preferences.addons['visage'].preferences
+        settings = context.scene.visage_target
+
+        row = self.layout.row(align=True)
+        row.scale_y = 1.5
+        op = row.operator('vs.pose', text='Set Neutral')
+        op.reset = False
+        op = row.operator('vs.pose', text='', icon='X')
+        op.reset = True
+
+
 class VisagePanelTarget(bpy.types.Panel):
     bl_idname = 'VISAGE_PT_visage_target'
     bl_label = 'Target'
@@ -663,6 +681,21 @@ class VisageStop(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class VisagePose(bpy.types.Operator):
+    bl_idname = 'vs.pose'
+    bl_label = 'Set Neutral Face'
+
+    reset : bpy.props.BoolProperty(default=False)
+
+    def execute(self, context):
+        global VISAGE_NEUTRAL
+        if self.reset:
+            VISAGE_NEUTRAL = [0.] * 52
+        else:
+            VISAGE_NEUTRAL = VISAGE_FRAME[:52]
+        return {'FINISHED'}
+
+
 class VisageReset(bpy.types.Operator):
     bl_idname = 'vs.reset'
     bl_label = 'Reset Visage Values'
@@ -670,7 +703,7 @@ class VisageReset(bpy.types.Operator):
     def execute(self, context):
         wm = context.window_manager
         if wm.visage_preview:
-            bpy.ops.vs.preview_toggle()
+            bpy.ops.vs.preview()
         target = context.scene.visage_target
         for shape in SHAPE_KEYS:
             target.face.shape_keys.key_blocks[shape].value = 0
@@ -908,11 +941,13 @@ __REGISTER_CLASSES__ = (
     VisageTarget,
     VisagePanelAnimation,
     VisagePanelData,
+    VisagePanelActor,
     VisagePanelTarget,
     VisagePanelKeys,
     VisagePanelFilter,
     VisageStart,
     VisageStop,
+    VisagePose,
     VisageReset,
     VisagePreview,
     VisageRecord,
@@ -944,7 +979,7 @@ def register():
 
 def unregister():
     stop_global_receiver()
-    
+
     for cls in __REGISTER_CLASSES__:
         bpy.utils.unregister_class(cls)
 
