@@ -284,8 +284,8 @@ def handler_frame_change_post(scene):
         and screen.is_animation_playing
         and not screen.is_scrubbing):
 
-        state.receiver.wait_for_frame()
-        record_visage_data(state.target, state.prefs)
+        if state.receiver.wait_for_frame():
+            record_visage_data(state.target, state.prefs)
 
 
 def maybe_toggle_frame_change_handler():
@@ -382,9 +382,6 @@ class VisageState:
                     self.recording[frame] = data
         return UPDATE_STEP
 
-    def get_frame_count(self):
-        return len(self.recording)
-
 
 class VisageReceiver:
     # local singleton only
@@ -442,7 +439,11 @@ class VisageReceiver:
             time.sleep(UPDATE_STEP)
             count += 1
             if count >= iterations:
-                break
+                # new frame unavailable yet
+                return False
+        # new frame available
+        state.input_status[2] = 0
+        return True
 
     def loop(self, state, timing, data, frames):
         print('Visage OSC receiver started')
@@ -608,7 +609,7 @@ class VisagePanelAnimation(bpy.types.Panel):
         row.operator('vs.record', text='RECORD', depress=True if wm.visage_record else False)
         row = col.row(align=True)
         row.scale_y = 1.25
-        row.operator('vs.record_save', text='Save (%s)' % state.get_frame_count())
+        row.operator('vs.record_save', text='Save (%s)' % len(state.recording))
         row.operator('vs.record_key', text='', icon='KEYFRAME')
         row.operator('vs.record_clear', text='Clear')
         self.layout.prop(prefs, 'frame_latency', text='Frame Latency')
