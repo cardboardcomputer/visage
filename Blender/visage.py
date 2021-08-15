@@ -149,7 +149,7 @@ def redraw_areas():
 
 
 def get_timeline_frame():
-    return bpy.context.scene.frame_current + bpy.context.scene.frame_subframe
+    return bpy.context.scene.frame_current + bpy.context.scene.frame_remote
 
 
 def get_timeline_seconds():
@@ -304,7 +304,7 @@ class VisageState:
     '''
     `input_status`:
         0:  receiving, thread/fork is running
-        1:  recording, queueing up frames for subframe timing
+        1:  recording, queueing up frames for remote timing
         2:  new frame received flag
 
     `input_timing`:
@@ -315,7 +315,7 @@ class VisageState:
         the latest frame data received
 
     `input_buffer`:
-        queue of received frame data when using subframe timing
+        queue of received frame data when using remote timing
     '''
 
     def __init__(self):
@@ -939,12 +939,11 @@ class VisageDestutter(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.object and context.object.type == 'MESH'
+        return context.scene.visage_target.face is not None
 
     def execute(self, context):
         target = context.scene.visage_target
-        obj = bpy.data.meshes[target.face]
-        action = obj.data.shape_keys.animation_data.action
+        action = target.face.shape_keys.animation_data.action
 
         lookup = {}
         for curve in action.fcurves:
@@ -994,12 +993,11 @@ class VisageSmooth(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.object and context.object.type == 'MESH'
+        return context.scene.visage_target.face is not None
 
     def execute(self, context):
         target = context.scene.visage_target
-        obj = bpy.data.meshes[target.face]
-        action = obj.data.shape_keys.animation_data.action
+        action = target.face.shape_keys.animation_data.action
 
         splines = {}
         for curve in action.fcurves:
@@ -1126,7 +1124,8 @@ def register():
 
 
 def unregister():
-    state.stop_receiver()
+    if state is not None:
+        state.stop_receiver()
 
     for cls in __REGISTER_CLASSES__:
         bpy.utils.unregister_class(cls)
