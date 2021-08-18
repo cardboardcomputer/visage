@@ -149,7 +149,7 @@ def redraw_areas():
 
 
 def get_timeline_frame():
-    return bpy.context.scene.frame_current + bpy.context.scene.frame_remote
+    return bpy.context.scene.frame_current + bpy.context.scene.frame_subframe
 
 
 def get_timeline_seconds():
@@ -319,8 +319,6 @@ class VisageState:
     '''
 
     def __init__(self):
-        self.target = None
-        self.prefs = None
         self.receiver = None
         self.neutral = [0.] * 63
         self.recording = {}
@@ -344,12 +342,18 @@ class VisageState:
             self.input_buffer = queue.Queue()
 
     @property
+    def target(self):
+        return bpy.context.scene.visage_target
+
+    @property
+    def prefs(self):
+        return bpy.context.preferences.addons['visage'].preferences
+
+    @property
     def is_receiver_running(self):
         return self.receiver and self.receiver.is_running
 
     def start_receiver(self):
-        self.target = bpy.context.scene.visage_target
-        self.prefs = bpy.context.preferences.addons['visage'].preferences
         self.use_remote_timing = self.target.keyframe_source == 'BROADCAST'
         if self.receiver is not None:
             self.receiver.reset()
