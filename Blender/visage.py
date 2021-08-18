@@ -336,7 +336,7 @@ class VisageState:
             self.input_frame = mp.Array('d', [0] * 63, lock=False)
             self.input_buffer = mp.Queue()
         else:
-            self.input_status = [0, 0]
+            self.input_status = [0, 0, 0]
             self.input_timing = [0, 0]
             self.input_frame = [0] * 63
             self.input_buffer = queue.Queue()
@@ -372,18 +372,26 @@ class VisageState:
         return UPDATE_STEP
 
     def record_update(self):
-        if self.use_remote_timing and self.receiver is not None:
+        wm = bpy.context.window_manager
+
+        if (wm.visage_record
+            and self.use_remote_timing
+            and self.receiver is not None):
+
             screen = bpy.context.screen
             is_playing = screen.is_animation_playing and not screen.is_scrubbing
+
             if is_playing and not self.receiver.is_recording:
                 self.receiver.start_recording()
             if not is_playing and self.receiver.is_recording:
                 self.receiver.stop_recording()
+
             while not self.input_buffer.empty():
                 data = self.input_buffer.get_nowait()
                 if data:
                     frame = data[-1] * bpy.context.scene.render.fps
                     self.recording[frame] = data
+
         return UPDATE_STEP
 
 
