@@ -379,6 +379,8 @@ class VisageState:
             and self.receiver is not None):
 
             screen = bpy.context.screen
+            offset = self.input_timing[0]
+            fps = bpy.context.scene.render.fps
             is_playing = screen.is_animation_playing and not screen.is_scrubbing
 
             if is_playing and not self.receiver.is_recording:
@@ -389,7 +391,7 @@ class VisageState:
             while not self.input_buffer.empty():
                 data = self.input_buffer.get_nowait()
                 if data:
-                    frame = data[-1] * bpy.context.scene.render.fps
+                    frame = (offset + data[-1]) * fps
                     self.recording[frame] = data
 
         return UPDATE_STEP
@@ -501,7 +503,7 @@ class VisageReceiver:
             self.marked = False
 
         if is_recording:
-            timestamp = data[-1] + self.offset_timeline - self.offset_timestamp
+            timestamp = data[-1] - self.offset_timestamp
             data = data[:-1] + (timestamp,)
             self.frames.put_nowait(data)
 
