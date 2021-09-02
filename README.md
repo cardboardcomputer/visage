@@ -1,14 +1,20 @@
 # Visage
 
-Basic iPhone app to stream face capture blendshape data provided through ARKit's `ARFaceAnchor`, and broadcasts it through Open Sound Control.
+This provides a basic and free capture tool for iPhone-based face mocap and headgear. 
 
-This app depends on the [SwiftOSC](https://github.com/ExistentialAudio/SwiftOSC) framework.
+It inclues a bare-bones iOS project/app that streams ARKit's `ARFaceAnchor` data, which includes face blendshapes and transforms, and broadcasts it through the [Open Sound Control](http://opensoundcontrol.org/) protocol.
+
+Build and run it on your phone with Xcode, and implement an OSC receiver in your capture software to collect the data.
+
+A Blender add-on is included as a functional example that receives the data from the iOS app.
+
+The iOS project depends on the [SwiftOSC](https://github.com/ExistentialAudio/SwiftOSC) framework.
 
 # OSC Broadcast
 
-An OSC message is broadcast everytime the AR session on the iPhone is updated. This usually happens at 60fps, but maybe be halved to 30fps depending on tracking quality and other phone conditions (charging or overheating will reduce frame rate, for example).
+An OSC message is broadcast every time the AR session on the iPhone is updated. This usually happens at 60 fps, but may be halved to 30 fps depending on phone conditions, like charging or overheating.
 
-The message that is broadcast is an array of 63 floats:
+The message that's broadcast is a list of 63 floats:
 
 `/visage float[63]`
 
@@ -18,7 +24,7 @@ With the following sections in the array:
 - indices `52`-`61` are eye/head transforms
 - index `62` is the elapsed time (in seconds) phone-side
 
-The full list of data indicies are as follows:
+The full list of data indices are:
 
 ```
 // blendshapes:
@@ -78,16 +84,16 @@ The full list of data indicies are as follows:
 
 // transforms:
 
-[52]  eye (left) X
-[53]  eye (left) Y
-[54]  eye (right) X
-[55]  eye (right) Y
-[56]  head rotation X
-[57]  head rotation Y
-[58]  head rotation Z
-[59]  head position X
-[60]  head position Y
-[61]  head position Z
+[52]  head position.x
+[53]  head position.y
+[54]  head position.z
+[55]  head euler.x
+[56]  head euler.y
+[57]  head euler.z
+[58]  eye (left) euler.x
+[59]  eye (left) euler.y
+[60]  eye (right) euler.x
+[61]  eye (right) euler.y
 
 // timestamp:
 
