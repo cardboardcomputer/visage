@@ -205,6 +205,11 @@ def apply_visage_data(target, prefs, data):
             if enabled:
                 key_blocks[SHAPE_KEY_IDX_TO_NAME[i]].value = remap(weight, bias, scale)
 
+    head_pos = data[52:55]
+
+    if target.head_pos_enabled:
+        bones[target.head].location = head_pos
+
     head_rot = data[55:58]
 
     if target.head_rot_enabled:
@@ -246,6 +251,10 @@ def keyframe_visage_recording(target, prefs):
                     frame=offset_frame,
                     group=SHAPE_KEY_GROUP[shape],
                     data_path='key_blocks["%s"].value' % shape)
+        if target.head_pos_enabled:
+            target.armature.keyframe_insert(
+                frame=offset_frame,
+                data_path='pose.bones["%s"].location' % target.head)
         if target.head_rot_enabled:
             target.armature.keyframe_insert(
                 frame=offset_frame,
@@ -533,6 +542,7 @@ class VisageTarget(bpy.types.PropertyGroup):
     eye_right : bpy.props.StringProperty(default='Eye.R', name='Eye.R')
 
     head_rot_enabled : bpy.props.BoolProperty(default=False)
+    head_pos_enabled : bpy.props.BoolProperty(default=False)
     eyes_rot_enabled : bpy.props.BoolProperty(default=True)
     head_rot_min_max : bpy.props.FloatVectorProperty(size=2, default=[0, 1])
     eyes_rot_min_max : bpy.props.FloatVectorProperty(size=2, default=[0, 1])
@@ -714,17 +724,17 @@ class VisagePanelKeys(bpy.types.Panel):
         settings = context.scene.visage_target
         layout = self.layout
 
-        row = layout.row()
-        row.prop(settings, 'mirror', text='')
-        row = layout.row()
-        col = row.column()
+        col = layout.column()
+        col.prop(settings, 'mirror', text='')
+        col.prop(settings, 'head_pos_enabled', text='Head Position')
         col.prop(settings, 'head_rot_enabled', text='Head Rotation')
         r = col.row(align=True)
+        r.enabled = settings.head_rot_enabled
         r.prop(settings, 'head_rot_min_max', index=0, text='')
         r.prop(settings, 'head_rot_min_max', index=1, text='')
-        col = row.column()
         col.prop(settings, 'eyes_rot_enabled', text='Eye Rotation')
         r = col.row(align=True)
+        r.enabled = settings.eyes_rot_enabled
         r.prop(settings, 'eyes_rot_min_max', index=0, text='')
         r.prop(settings, 'eyes_rot_min_max', index=1, text='')
 
