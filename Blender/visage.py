@@ -187,7 +187,8 @@ def apply_visage_data(target, prefs, data):
         mirror = None
 
     weights = data[:52]
-    weights = [x - y for (x, y) in zip(weights, state.neutral[:52])]
+    if target.apply_neutral:
+        weights = [x - y for (x, y) in zip(weights, state.neutral[:52])]
 
     if mirror:
         for i, weight in enumerate(weights):
@@ -206,11 +207,15 @@ def apply_visage_data(target, prefs, data):
                 key_blocks[SHAPE_KEY_IDX_TO_NAME[i]].value = remap(weight, bias, scale)
 
     head_pos = data[52:55]
+    if target.apply_neutral:
+        head_pos = [x - y for (x, y) in zip(head_pos, state.neutral[52:55])]
 
     if target.head_pos_enabled:
         bones[target.head].location = head_pos
 
     head_rot = data[55:58]
+    if target.apply_neutral:
+        head_rot = [x - y for (x, y) in zip(head_pos, state.neutral[55:58])]
 
     if target.head_rot_enabled:
         bs = target.head_rot_min_max[:]
@@ -361,6 +366,11 @@ class VisageState:
     @property
     def is_receiver_running(self):
         return self.receiver and self.receiver.is_running
+
+    def load_neutral(self):
+        scene = bpy.context.scene
+        if 'visage_neutral' in scene:
+            self.neutral = list(scene['visage_neutral'])
 
     def start_receiver(self):
         self.use_remote_timing = self.target.keyframe_source == 'BROADCAST'
@@ -614,6 +624,8 @@ class VisageTarget(bpy.types.PropertyGroup):
         default='TIMELINE', name='Keyframe Mode',
         update=update_keyframe_source)
 
+    apply_neutral : bpy.props.BoolProperty(default=False)
+
 
 class VisagePanelAnimation(bpy.types.Panel):
     bl_idname = 'VS_PT_visage_anim'
@@ -685,7 +697,10 @@ class VisagePanelActor(bpy.types.Panel):
 
         row = self.layout.row(align=True)
         row.scale_y = 1.5
-        op = row.operator('vs.pose', text='Set Neutral')
+        icon = 'KEYFRAME_HLT' if settings.apply_neutral else 'KEYFRAME'
+        row.prop(settings, 'apply_neutral', text='', toggle=True, icon=icon)
+        icon = 'CHECKBOX_HLT' if 'visage_neutral' in context.scene else 'CHECKBOX_DEHLT'
+        op = row.operator('vs.pose', text='Set Neutral', icon=icon)
         op.reset = False
         op = row.operator('vs.pose', text='', icon='X')
         op.reset = True
@@ -817,6 +832,7 @@ class VisageStart(bpy.types.Operator):
 
     def execute(self, context):
         state.start_receiver()
+        state.load_neutral()
         return {'FINISHED'}
 
 
@@ -838,8 +854,10 @@ class VisagePose(bpy.types.Operator):
     def execute(self, context):
         if self.reset:
             state.neutral = [0.] * 63
+            del context.scene['visage_neutral']
         else:
             state.neutral = state.input_frame[:63]
+            context.scene['visage_neutral'] = state.neutral
         return {'FINISHED'}
 
 
@@ -874,6 +892,7 @@ class VisagePreview(bpy.types.Operator):
             if bpy.app.timers.is_registered(timer_preview_update):
                 bpy.app.timers.unregister(timer_preview_update)
         maybe_toggle_frame_change_handler()
+        state.load_neutral()
         return {'FINISHED'}
 
 
