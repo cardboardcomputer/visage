@@ -215,7 +215,7 @@ def apply_visage_data(target, prefs, data):
 
     head_rot = data[55:58]
     if target.apply_neutral:
-        head_rot = [x - y for (x, y) in zip(head_pos, state.neutral[55:58])]
+        head_rot = [x - y for (x, y) in zip(head_rot, state.neutral[55:58])]
 
     if target.head_rot_enabled:
         bs = target.head_rot_min_max[:]
