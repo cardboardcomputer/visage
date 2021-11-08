@@ -46,7 +46,7 @@ class ViewController: UIViewController, UITextFieldDelegate, ARSCNViewDelegate, 
         sceneView.delegate = self
         sceneView.session.delegate = self
         addressField.delegate = self
-    }
+    }	
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
@@ -54,6 +54,7 @@ class ViewController: UIViewController, UITextFieldDelegate, ARSCNViewDelegate, 
         let configuration = ARFaceTrackingConfiguration()
         configuration.maximumNumberOfTrackedFaces = 1
         configuration.isWorldTrackingEnabled = false
+        configuration.worldAlignment = .camera
         
         sceneView.session.run(configuration)
     }
@@ -184,9 +185,9 @@ class ViewController: UIViewController, UITextFieldDelegate, ARSCNViewDelegate, 
         data[52] = face.transform.columns.3[0]
         data[53] = face.transform.columns.3[1]
         data[54] = face.transform.columns.3[2]
-        data[55] = -headRot.z
-        data[56] = headRot.y
-        data[57] = headRot.x
+        data[55] = -headRot.y
+        data[56] = -headRot.z
+        data[57] = headRot.x + 90
         data[58] = -eyeLeft.z
         data[59] = eyeLeft.y
         data[60] = -eyeRight.z
