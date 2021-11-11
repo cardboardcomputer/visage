@@ -757,12 +757,11 @@ class VisagePanelActor(bpy.types.Panel):
         if settings.face:
             action_face = settings.face.shape_keys.animation_data.action
             if action_face:
-                tokens.append('Face: %s' % action_face.name)
+                box.label(text='Face: %s' % action_face.name)
         if settings.armature:
             action_body = settings.armature.animation_data.action
             if action_body:
-                tokens.append('Body: %s' % action_body.name)
-        box.label(text='\n'.join(tokens))
+                box.label(text='Body: %s' % action_body.name)
 
 
 
