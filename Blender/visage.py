@@ -140,7 +140,8 @@ def lerp(a, b, v):
 
 
 def remap(v, b, s):
-    return (v - b) * s
+    # return (v - b) * s
+    return v * s + b
 
 
 def redraw_areas():
@@ -173,6 +174,11 @@ def update_weight_params(self, value):
         data[0] = remap_min[i]
         data[1] = remap_max[i]
         data[2] = enabled[i]
+
+
+def update_neutral(self, value):
+    target = bpy.context.scene.visage_target
+    state.neutral = target.neutral1[:] + target.neutral2[:]
 
 
 def apply_visage_data(target, prefs, data):
@@ -334,7 +340,7 @@ class VisageState:
 
     def __init__(self):
         self.receiver = None
-        self.neutral = [0.] * 63
+        self.neutral = [0.] * 62
         self.recording = {}
         self.use_remote_timing = False
 
@@ -369,8 +375,10 @@ class VisageState:
 
     def load_neutral(self):
         scene = bpy.context.scene
-        if 'visage_neutral' in scene:
-            self.neutral = list(scene['visage_neutral'])
+        target = scene.visage_target
+        # if 'visage_neutral' in scene:
+        #     self.neutral = list(scene['visage_neutral'])
+        self.neutral = target.neutral1[:] + target.neutral2[:]
 
     def start_receiver(self):
         self.use_remote_timing = self.target.keyframe_source == 'BROADCAST'
@@ -573,10 +581,10 @@ class VisageTarget(bpy.types.PropertyGroup):
     sub_mouth_enabled : bpy.props.BoolVectorProperty(size=23, default=[True]*23, update=update_weight_params)
     sub_tongue_enabled : bpy.props.BoolVectorProperty(size=1, default=[True]*1, update=update_weight_params)
 
-    shape_min1 : bpy.props.FloatVectorProperty(size=32, default=[0.0]*32)
-    shape_max1 : bpy.props.FloatVectorProperty(size=32, default=[1.0]*32)
-    shape_min2 : bpy.props.FloatVectorProperty(size=20, default=[0.0]*20)
-    shape_max2 : bpy.props.FloatVectorProperty(size=20, default=[1.0]*20)
+    shape_min1 : bpy.props.FloatVectorProperty(size=32, default=[0.0]*32, update=update_weight_params)
+    shape_max1 : bpy.props.FloatVectorProperty(size=32, default=[1.0]*32, update=update_weight_params)
+    shape_min2 : bpy.props.FloatVectorProperty(size=20, default=[0.0]*20, update=update_weight_params)
+    shape_max2 : bpy.props.FloatVectorProperty(size=20, default=[1.0]*20, update=update_weight_params)
 
     MIRROR_ITEMS = [
         ('NONE', 'No Mirroring', 'No mirroring'),
@@ -585,16 +593,6 @@ class VisageTarget(bpy.types.PropertyGroup):
     ]
 
     mirror : bpy.props.EnumProperty(items=MIRROR_ITEMS, default='NONE', name='Mirroring')
-
-    # ui display only
-
-    show_brow : bpy.props.BoolProperty()
-    show_eye : bpy.props.BoolProperty()
-    show_cheek : bpy.props.BoolProperty()
-    show_nose : bpy.props.BoolProperty()
-    show_jaw : bpy.props.BoolProperty()
-    show_mouth : bpy.props.BoolProperty()
-    show_tongue : bpy.props.BoolProperty()
 
     FALLOFF_ITEMS = (
         ('UNIFORM', 'Uniform', 'Uniform'),
@@ -625,6 +623,20 @@ class VisageTarget(bpy.types.PropertyGroup):
         update=update_keyframe_source)
 
     apply_neutral : bpy.props.BoolProperty(default=False)
+    have_neutral : bpy.props.BoolProperty(default=False)
+    neutral1 : bpy.props.FloatVectorProperty(size=32, default=[0.0]*32, step=1, update=update_neutral)
+    neutral2 : bpy.props.FloatVectorProperty(size=30, default=[0.0]*30, step=1, update=update_neutral)
+
+    # ui display only
+
+    show_brow : bpy.props.BoolProperty()
+    show_eye : bpy.props.BoolProperty()
+    show_cheek : bpy.props.BoolProperty()
+    show_nose : bpy.props.BoolProperty()
+    show_jaw : bpy.props.BoolProperty()
+    show_mouth : bpy.props.BoolProperty()
+    show_tongue : bpy.props.BoolProperty()
+    show_neutral : bpy.props.BoolProperty()
 
 
 class VisagePanelAnimation(bpy.types.Panel):
@@ -699,11 +711,58 @@ class VisagePanelActor(bpy.types.Panel):
         row.scale_y = 1.5
         icon = 'KEYFRAME_HLT' if settings.apply_neutral else 'KEYFRAME'
         row.prop(settings, 'apply_neutral', text='', toggle=True, icon=icon)
-        icon = 'CHECKBOX_HLT' if 'visage_neutral' in context.scene else 'CHECKBOX_DEHLT'
+        # icon = 'CHECKBOX_HLT' if 'visage_neutral' in context.scene else 'CHECKBOX_DEHLT'
+        icon = 'CHECKBOX_HLT' if settings.have_neutral else 'CHECKBOX_DEHLT'
         op = row.operator('vs.pose', text='Set Neutral', icon=icon)
         op.reset = False
         op = row.operator('vs.pose', text='', icon='X')
         op.reset = True
+
+        box = self.layout.box()
+        row = box.row()
+        visible = settings.show_neutral
+        if visible:
+            row.prop(settings, 'show_neutral', icon='DOWNARROW_HLT', text='', emboss=False)
+        else:
+            row.prop(settings, 'show_neutral', icon='RIGHTARROW', text='', emboss=False)
+        row.label(text='Neutral Offsets')
+        if visible:
+            col = box.column(align=True)
+            for i in range(32):
+                col.prop(settings, 'neutral1', index=i, text=SHAPE_KEY_IDX_TO_NAME[i])
+            for i in range(20):
+                col.prop(settings, 'neutral2', index=i, text=SHAPE_KEY_IDX_TO_NAME[32 + i])
+            col.prop(settings, 'neutral2', index=52 - 32, text='Head Pos X')
+            col.prop(settings, 'neutral2', index=53 - 32, text='Head Pos Y')
+            col.prop(settings, 'neutral2', index=54 - 32, text='Head Pos Z')
+            col.prop(settings, 'neutral2', index=55 - 32, text='Head Rot X')
+            col.prop(settings, 'neutral2', index=56 - 32, text='Head Rot Y')
+            col.prop(settings, 'neutral2', index=57 - 32, text='Head Rot Z')
+            col.prop(settings, 'neutral2', index=58 - 32, text='Eye.L X')
+            col.prop(settings, 'neutral2', index=59 - 32, text='Eye.L Y')
+            col.prop(settings, 'neutral2', index=60 - 32, text='Eye.R X')
+            col.prop(settings, 'neutral2', index=61 - 32, text='Eye.R Y')
+
+        col = self.layout.column(align=True)
+        row = col.row(align=True)
+        row.scale_y = 1.25
+        op = row.operator('vs.neutral', text='Apply')
+        op.remove = False
+        op = row.operator('vs.neutral', text='Remove')
+        op.remove = True
+        box = col.box()
+        box.scale_y = .8
+        action_face = action_body =  None
+        tokens = []
+        if settings.face:
+            action_face = settings.face.shape_keys.animation_data.action
+            if action_face:
+                box.label(text='Face: %s' % action_face.name)
+        if settings.armature:
+            action_body = settings.armature.animation_data.action
+            if action_body:
+                box.label(text='Body: %s' % action_body.name)
+
 
 
 class VisagePanelTarget(bpy.types.Panel):
@@ -852,12 +911,21 @@ class VisagePose(bpy.types.Operator):
     reset : bpy.props.BoolProperty(default=False)
 
     def execute(self, context):
+        target = context.scene.visage_target
+
         if self.reset:
-            state.neutral = [0.] * 63
-            del context.scene['visage_neutral']
+            target.neutral1 = [0.] * 32
+            target.neutral2 = [0.] * 32
+            state.neutral = [0.] * 62
+            target.have_neutral = False
+            # del context.scene['visage_neutral']
         else:
-            state.neutral = state.input_frame[:63]
-            context.scene['visage_neutral'] = state.neutral
+            neutral = state.input_frame[:62]
+            target.neutral1 = neutral[:32]
+            target.neutral2 = neutral[32:62]
+            state.neutral = neutral
+            target.have_neutral = True
+            # context.scene['visage_neutral'] = state.neutral
         return {'FINISHED'}
 
 
@@ -1106,6 +1174,63 @@ class VisageSmooth(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class VisageNeutral(bpy.types.Operator):
+    bl_idname = 'vs.neutral'
+    bl_label = 'Apply Neutral Pose'
+    bl_options = {'REGISTER', 'UNDO'}
+
+    remove : bpy.props.BoolProperty(default=False)
+
+    @classmethod
+    def poll(cls, context):
+        return context.scene.visage_target.face is not None
+
+    def execute(self, context):
+        target = context.scene.visage_target
+        action = target.face.shape_keys.animation_data.action
+
+        state.load_neutral()
+        mode = 1 if self.remove else -1
+
+        if action:
+            for curve in action.fcurves:
+                if target.filter_selected_only:
+                    if not curve.select:
+                        continue
+                tokens = curve.data_path.split('"')
+                if len(tokens) > 1:
+                    index = SHAPE_KEY_NAME_TO_IDX.get(tokens[1])
+                    if index:
+                        offset = state.neutral[index]
+                        for k in curve.keyframe_points:
+                            k.co_ui.y += offset * mode
+
+        if target.armature:
+            action = target.armature.animation_data.action
+            if action:
+                dp_head_pos = 'pose.bones["%s"].location' % target.head
+                dp_head_rot = 'pose.bones["%s"].rotation_euler' % target.head
+                dp_eye_l_rot = 'pose.bones["%s"].rotation_euler' % target.eye_left
+                dp_eye_r_rot = 'pose.bones["%s"].rotation_euler' % target.eye_right
+
+                for curve in action.fcurves:
+                    offset = 0
+
+                    if curve.data_path == dp_head_pos:
+                        offset = state.neutral[52 + curve.array_index]
+                    if curve.data_path == dp_head_rot:
+                        offset = state.neutral[55 + curve.array_index]
+                    if curve.data_path == dp_eye_l_rot and curve.array_index < 2:
+                        offset = state.neutral[58 + curve.array_index]
+                    if curve.data_path == dp_eye_r_rot and curve.array_index < 2:
+                        offset = state.neutral[60 + curve.array_index]
+
+                    for k in curve.keyframe_points:
+                        k.co_ui.y += offset * mode
+
+        return {'FINISHED'}
+
+
 __REGISTER_CLASSES__ = (
     VisagePreferences,
     VisageTarget,
@@ -1127,6 +1252,7 @@ __REGISTER_CLASSES__ = (
     VisageShapeKeys,
     VisageDestutter,
     VisageSmooth,
+    VisageNeutral,
 )
 
 
