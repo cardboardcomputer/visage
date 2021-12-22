@@ -915,7 +915,7 @@ class VisagePose(bpy.types.Operator):
 
         if self.reset:
             target.neutral1 = [0.] * 32
-            target.neutral2 = [0.] * 32
+            target.neutral2 = [0.] * 30
             state.neutral = [0.] * 62
             target.have_neutral = False
             # del context.scene['visage_neutral']
