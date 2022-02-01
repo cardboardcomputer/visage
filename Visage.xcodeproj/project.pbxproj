@@ -7,8 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		02593CE427398AD00053C898 /* SwiftOSC.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 02F8076726C7006E00CFEC48 /* SwiftOSC.framework */; platformFilter = ios; };
-		02593CE527398AD00053C898 /* SwiftOSC.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 02F8076726C7006E00CFEC48 /* SwiftOSC.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		028F256027A97B2F004EE578 /* SwiftOSC.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 02F8076726C7006E00CFEC48 /* SwiftOSC.framework */; platformFilter = ios; };
+		028F256127A97B2F004EE578 /* SwiftOSC.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 02F8076726C7006E00CFEC48 /* SwiftOSC.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		02F8075426C7005300CFEC48 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02F8075326C7005300CFEC48 /* AppDelegate.swift */; };
 		02F8075626C7005300CFEC48 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02F8075526C7005300CFEC48 /* SceneDelegate.swift */; };
 		02F8075826C7005300CFEC48 /* ViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02F8075726C7005300CFEC48 /* ViewController.swift */; };
@@ -18,13 +18,13 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
-		02593CE627398AD00053C898 /* Embed Frameworks */ = {
+		028F256227A97B2F004EE578 /* Embed Frameworks */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
 			dstPath = "";
 			dstSubfolderSpec = 10;
 			files = (
-				02593CE527398AD00053C898 /* SwiftOSC.framework in Embed Frameworks */,
+				028F256127A97B2F004EE578 /* SwiftOSC.framework in Embed Frameworks */,
 			);
 			name = "Embed Frameworks";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -48,7 +48,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				02593CE427398AD00053C898 /* SwiftOSC.framework in Frameworks */,
+				028F256027A97B2F004EE578 /* SwiftOSC.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -104,7 +104,7 @@
 				02F8074C26C7005300CFEC48 /* Sources */,
 				02F8074D26C7005300CFEC48 /* Frameworks */,
 				02F8074E26C7005300CFEC48 /* Resources */,
-				02593CE627398AD00053C898 /* Embed Frameworks */,
+				028F256227A97B2F004EE578 /* Embed Frameworks */,
 			);
 			buildRules = (
 			);
