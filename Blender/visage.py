@@ -1032,8 +1032,7 @@ class VisageShapeKeys(bpy.types.Operator):
         return context.object and context.object.type == 'MESH'
 
     def execute(self, context):
-        target = context.scene.visage_target
-        obj = bpy.data.meshes[target.face]
+        obj = context.object
         if not obj.data.shape_keys or 'Basis' not in obj.data.shape_keys.key_blocks:
             basis = obj.shape_key_add(name='Basis', from_mix=False)
         else:
