@@ -754,14 +754,18 @@ class VisagePanelActor(bpy.types.Panel):
         box.scale_y = .8
         action_face = action_body =  None
         tokens = []
-        if settings.face:
-            action_face = settings.face.shape_keys.animation_data.action
-            if action_face:
-                box.label(text='Face: %s' % action_face.name)
+        if settings.face and settings.face.shape_keys:
+            anim_data = settings.face.shape_keys.animation_data
+            if anim_data:
+                action_face = anim_data.action
+                if action_face:
+                    box.label(text='Face: %s' % action_face.name)
         if settings.armature:
-            action_body = settings.armature.animation_data.action
-            if action_body:
-                box.label(text='Body: %s' % action_body.name)
+            anim_data = settings.armature.animation_data
+            if anim_data:
+                action_body = anim_data.action
+                if action_body:
+                    box.label(text='Body: %s' % action_body.name)
 
 
 
@@ -783,6 +787,8 @@ class VisagePanelTarget(bpy.types.Panel):
         col.prop(settings, 'head')
         col.prop(settings, 'eye_left')
         col.prop(settings, 'eye_right')
+
+        self.layout.operator('vs.visage_shape_keys', text='Create Shape Keys')
 
 
 class VisagePanelKeys(bpy.types.Panel):
@@ -1038,8 +1044,9 @@ class VisageShapeKeys(bpy.types.Operator):
         else:
             basis = obj.data.shape_keys.key_blocks['Basis']
         for name in SHAPE_KEYS:
-            key = obj.shape_key_add(name=name, from_mix=False)
-            key.relative_key = basis
+            if name not in obj.data.shape_keys.key_blocks:
+                key = obj.shape_key_add(name=name, from_mix=False)
+                key.relative_key = basis
         return {'FINISHED'}
 
 
